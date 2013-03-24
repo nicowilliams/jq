@@ -110,7 +110,7 @@ docs/content/2.download/source/jq.tgz: jq
 tarball: docs/content/2.download/source/jq.tgz
 
 jq.1: docs/content/3.manual/manual.yml
-	( cd docs; rake manpage; ) > $@
+	( cd docs; bundle exec rake manpage; ) > $@
 
 install: jq jq.1 libjq
 	install -d -m 0755 $(prefix)/bin
@@ -127,7 +127,7 @@ install: jq jq.1 libjq
 	install -m 0755 libjq.so.1 $(prefix)/bin
 	install -m 0644 execute.h $(prefix)/bin
 	install -d -m 0755 $(mandir)/man1
-	install -m 0755 jq.1 $(mandir)/man1
+	install -m 0644 jq.1 $(mandir)/man1
 
 uninstall:
 	rm -vf $(prefix)/bin/jq
