@@ -1,0 +1,28 @@
+
+All globals are in execute.c and are used only via what should/will be
+API functions: jq_next() and jq_teardown().
+
+These:
+
+    data_stk
+    fork_stk
+    frame_stk
+
+are used in stack_{push, pop, save, switch, restore}(), and jq_next()
+and jq_teardown().  The stack_*() functions are only reachable via
+jq_next() and jq_teardown.
+
+These:
+
+    pathbuf
+    pathsize
+
+are used in path_push(), which is called from jq_next(), and in
+jq_next() and jq_teardown().
+
+TODO:
+
+ - put all of these into a struct that gets passed into jq_next() and
+   jq_teardown().
+
+ - make jq_init() allocate that struct.
