@@ -22,7 +22,13 @@ jq_next() and jq_teardown().
 
 TODO:
 
- - put all of these into a struct that gets passed into jq_next() and
+ - Put all of these into a struct that gets passed into jq_next() and
    jq_teardown().
 
- - make jq_init() allocate that struct.
+ - Make jq_init() allocate that struct.
+
+NOTES:
+
+ - On memory allocation failure we abort().  Fixing this will be a lot
+   of work and not worth doing until upstream agrees unless we really
+   fork this forever.
