@@ -138,6 +138,7 @@ static int read_more(char* buf, size_t size) {
 }
 
 int main(int argc, char* argv[]) {
+  int ret = 0;
   if (argc) progname = argv[0];
 
   const char* program = 0;
@@ -251,6 +252,7 @@ int main(int argc, char* argv[]) {
           jv msg = jv_invalid_get_msg(value);
           fprintf(stderr, "parse error: %s\n", jv_string_value(msg));
           jv_free(msg);
+          ret = 1;
           break;
         } else {
           jv_free(value);
@@ -258,11 +260,11 @@ int main(int argc, char* argv[]) {
       }
     }
     jv_parser_free(&parser);
-    if (options & SLURP) {
+    if (ret == 0 && (options & SLURP)) {
       process(slurped);
     }
   }
   jv_mem_free(input_filenames);
   bytecode_free(bc);
-  return 0;
+  return ret;
 }
