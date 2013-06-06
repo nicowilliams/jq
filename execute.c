@@ -23,6 +23,9 @@ struct jq_state {
   struct forkable_stack data_stk;
   struct forkable_stack frame_stk;
   struct forkable_stack fork_stk;
+  void (*nomem_handler)(void);
+  void *nomem_handler_data;
+  struct bytecode* bc;
   jv path;
   int subexp_nest;
   int debug_trace_enabled;
@@ -552,28 +555,37 @@ jv jq_next(jq_state *jq) {
   }
 }
 
+jq_state *jq_init(void) {
+  jq_state *jq;
+  jq = jv_mem_alloc(sizeof(*jq));
+  memset(jq, 0, sizeof(*jq));
+  jq->debug_trace_enabled = 0;
+  jq->initial_execution = 1;
+  return jq;
+}
 
-void jq_init(struct bytecode* bc, jv input, jq_state **jq, int flags) {
-  jq_state *new_jq;
-  new_jq = jv_mem_alloc(sizeof(*new_jq));
-  memset(new_jq, 0, sizeof(*new_jq));
-  new_jq->path = jv_null();
-  forkable_stack_init(&new_jq->data_stk, sizeof(data_stk_elem) * 100);
-  forkable_stack_init(&new_jq->frame_stk, 1024);
-  forkable_stack_init(&new_jq->fork_stk, 1024);
+void jq_set_nomem_handler(jq_state *jq, void (*nomem_handler)(void *), void *data) {
+  jq->nomem_handler = nomem_handler;
+  jq->nomem_handler_data = data;
+}
+
+void jq_start(struct bytecode* bc, jv input, jq_state *jq, int flags) {
+  jq->path = jv_null();
+  forkable_stack_init(&jq->data_stk, sizeof(data_stk_elem) * 100);
+  forkable_stack_init(&jq->frame_stk, 1024);
+  forkable_stack_init(&jq->fork_stk, 1024);
   
-  stack_push(new_jq, input);
+  stack_push(jq, input);
   struct closure top = {bc, -1};
-  frame_push(&new_jq->frame_stk, top, 0);
-  stack_save(new_jq, bc->code);
-  stack_switch(new_jq);
+  frame_push(&jq->frame_stk, top, 0);
+  stack_save(jq, bc->code);
+  stack_switch(jq);
   if (flags & JQ_DEBUG_TRACE) {
-    new_jq->debug_trace_enabled = 1;
+    jq->debug_trace_enabled = 1;
   } else {
-    new_jq->debug_trace_enabled = 0;
+    jq->debug_trace_enabled = 0;
   }
-  new_jq->initial_execution = 1;
-  *jq = new_jq;
+  jq->initial_execution = 1;
 }
 
 void jq_teardown(jq_state **jq) {

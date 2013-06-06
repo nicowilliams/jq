@@ -12,7 +12,9 @@ struct bytecode* jq_compile_args(const char* str, jv args);
 typedef struct jq_state jq_state;
 enum {JQ_DEBUG_TRACE = 1};
 
-void jq_init(struct bytecode* bc, jv value, jq_state **, int flags);
+jq_state *jq_init(void);
+void jq_set_nomem_handler(jq_state *, void (*)(void *), void *);
+void jq_start(struct bytecode* bc, jv value, jq_state *, int flags);
 jv jq_next(jq_state *);
 void jq_teardown(jq_state **);
 
