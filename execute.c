@@ -122,15 +122,10 @@ uint16_t* stack_restore(jq_state *jq){
 }
 
 static void jq_reset(jq_state *jq) {
-  bytecode_free(jq->bc);
-  jq->bc = 0;
   while (stack_restore(jq)) {}
   assert(forkable_stack_empty(&jq->fork_stk));
   assert(forkable_stack_empty(&jq->data_stk));
   assert(forkable_stack_empty(&jq->frame_stk));
-  forkable_stack_free(&jq->fork_stk);
-  forkable_stack_free(&jq->data_stk);
-  forkable_stack_free(&jq->frame_stk);
 
   if (jv_get_kind(jq->path) != JV_KIND_INVALID)
     jv_free(jq->path);
@@ -579,6 +574,10 @@ jq_state *jq_init(void) {
   memset(jq, 0, sizeof(*jq));
   jq->debug_trace_enabled = 0;
   jq->initial_execution = 1;
+  forkable_stack_init(&jq->data_stk, sizeof(data_stk_elem) * 100);
+  forkable_stack_init(&jq->frame_stk, 1024);
+  forkable_stack_init(&jq->fork_stk, 1024);
+  jq->path = jv_null();
   return jq;
 }
 
@@ -588,12 +587,8 @@ void jq_set_nomem_handler(jq_state *jq, void (*nomem_handler)(void *), void *dat
 }
 
 void jq_start(jq_state *jq, jv input, int flags) {
+
   jq_reset(jq);
-  forkable_stack_init(&jq->data_stk, sizeof(data_stk_elem) * 100);
-  forkable_stack_init(&jq->frame_stk, 1024);
-  forkable_stack_init(&jq->fork_stk, 1024);
-  jq->path = jv_null();
-  
   stack_push(jq, input);
   struct closure top = {jq->bc, -1};
   frame_push(&jq->frame_stk, top, 0);
@@ -614,6 +609,11 @@ void jq_teardown(jq_state **jq) {
   *jq = NULL;
 
   jq_reset(old_jq);
+  forkable_stack_free(&old_jq->fork_stk);
+  forkable_stack_free(&old_jq->data_stk);
+  forkable_stack_free(&old_jq->frame_stk);
+  bytecode_free(old_jq->bc);
+  old_jq->bc = 0;
   jv_mem_free(old_jq);
 }
 
@@ -623,6 +623,10 @@ int jq_compile_args(jq_state *jq, const char* str, jv args) {
   locfile_init(&locations, str, strlen(str));
   block program;
   jq_reset(jq);
+  if (jq->bc) {
+    bytecode_free(jq->bc);
+    jq->bc = 0;
+  }
   int nerrors = jq_parse(&locations, &program);
   if (nerrors == 0) {
     for (int i=0; i<jv_array_length(jv_copy(args)); i++) {

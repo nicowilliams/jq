@@ -92,9 +92,9 @@ static void run_jq_tests(FILE *testdata) {
         jv_free(extra);
       }
     }
-    jq_teardown(&jq);
     passed+=pass;
   }
+  jq_teardown(&jq);
   printf("%d of %d tests passed (%d malformed)\n", passed,tests,invalid);
   if (passed != tests) exit(1);
 }
