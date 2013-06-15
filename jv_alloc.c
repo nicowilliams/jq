@@ -93,6 +93,10 @@ void* jv_mem_alloc(size_t sz) {
   return p;
 }
 
+void* jv_mem_alloc_unguarded(size_t sz) {
+  return malloc(sz);
+}
+
 void jv_mem_free(void* p) {
   free(p);
 }

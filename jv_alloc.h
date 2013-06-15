@@ -17,6 +17,7 @@ static void jv_mem_invalidate(void* mem, size_t n) {
 typedef void (*jv_nomem_handler_f)(void *);
 void jv_nomem_handler(jv_nomem_handler_f, void *);
 void* jv_mem_alloc(size_t);
+void* jv_mem_alloc_unguarded(size_t);
 void jv_mem_free(void*);
 __attribute__((warn_unused_result)) void* jv_mem_realloc(void*, size_t);
 
