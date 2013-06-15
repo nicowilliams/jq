@@ -4,7 +4,7 @@
 
 struct nomem_handler {
     jv_nomem_handler_f handler;
-    void *handler_data;
+    void *data;
 };
 
 #ifndef USE_PTHREAD_KEY
@@ -14,7 +14,7 @@ static __declspec(thread) struct nomem_handler nomem_handler;
 static __thread struct nomem_handler nomem_handler;
 #endif
 
-void jv_nomem_handler(jv_nomem_handler_f handler, void *handler_data) {
+void jv_nomem_handler(jv_nomem_handler_f handler, void *data) {
   nomem_handler.handler = handler;
 }
 
@@ -39,18 +39,18 @@ static void tsd_init(void) {
   }
 }
 
-void jv_nomem_handler(jv_nomem_handler_f handler, void *handler_data) {
+void jv_nomem_handler(jv_nomem_handler_f handler, void *data) {
   pthread_once(&mem_once, tsd_init); // cannot fail
   struct nomem_handler *nomem_handler = calloc(1, sizeof (nomem_handler));
   if (nomem_handler == NULL) {
-    handler(handler_data);
+    handler(data);
     fprintf(stderr, "error: cannot allocate memory\n");
     abort();
   }
   nomem_handler.handler = handler;
-  nomem_handler.data = handler_data;
+  nomem_handler.data = data;
   if (pthread_setspecific(nomem_handler_key, nomem_handler) != 0) {
-    handler(handler_data);
+    handler(data);
     fprintf(stderr, "error: cannot set thread specific data");
     abort();
   }
@@ -71,9 +71,9 @@ static void memory_exhausted() {
 #else
 
 static struct nomem_handler nomem_handler;
-void jv_nomem_handler(jv_nomem_handler_f handler, void *handler_data) {
+void jv_nomem_handler(jv_nomem_handler_f handler, void *data) {
   nomem_handler.handler = handler;
-  nomem_handler.data = handler_data;
+  nomem_handler.data = data;
 }
 
 static void memory_exhausted() {
@@ -84,12 +84,6 @@ static void memory_exhausted() {
 #endif /* HAVE_PTHREAD_KEY_CREATE */
 #endif /* !USE_PTHREAD_KEY */
 
-
-
-static void memory_exhausted() {
-  fprintf(stderr, "error: cannot allocate memory\n");
-  abort();
-}
 
 void* jv_mem_alloc(size_t sz) {
   void* p = malloc(sz);
