@@ -116,6 +116,8 @@ void dump_operation(struct bytecode* bc, uint16_t* codeptr) {
 }
 
 void bytecode_free(struct bytecode* bc) {
+  if (!bc)
+    return;
   jv_mem_free(bc->code);
   jv_free(bc->constants);
   for (int i=0; i<bc->nsubfunctions; i++)
