@@ -161,6 +161,8 @@ void print_error(jv value) {
 jv jq_next(jq_state *jq) {
   jv cfunc_input[MAX_CFUNCTION_ARGS];
 
+  jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
+
   uint16_t* pc = stack_restore(jq);
   assert(pc);
 
@@ -582,12 +584,13 @@ jq_state *jq_init(void) {
 }
 
 void jq_set_nomem_handler(jq_state *jq, void (*nomem_handler)(void *), void *data) {
+  jv_nomem_handler(nomem_handler, data);
   jq->nomem_handler = nomem_handler;
   jq->nomem_handler_data = data;
 }
 
 void jq_start(jq_state *jq, jv input, int flags) {
-
+  jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   jq_reset(jq);
   stack_push(jq, input);
   struct closure top = {jq->bc, -1};
@@ -618,6 +621,7 @@ void jq_teardown(jq_state **jq) {
 }
 
 int jq_compile_args(jq_state *jq, const char* str, jv args) {
+  jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   assert(jv_get_kind(args) == JV_KIND_ARRAY);
   struct locfile locations;
   locfile_init(&locations, str, strlen(str));
