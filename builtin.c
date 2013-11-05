@@ -180,6 +180,18 @@ static jv f_contains(jv a, jv b) {
   }
 }
 
+static jv f_parse(jv input) {
+  if (jv_get_kind(input) != JV_KIND_STRING) {
+    return input;
+  }
+  if (jv_get_kind(input) == JV_KIND_STRING) {
+    jv parsed = jv_parse(jv_string_value(input));
+    jv_free(input);
+    return parsed;
+  }
+  return type_error(input, "cannot be parsed as a JSON text");
+}
+
 static jv f_tonumber(jv input) {
   if (jv_get_kind(input) == JV_KIND_NUMBER) {
     return input;
@@ -490,6 +502,7 @@ static const struct cfunction function_list[] = {
   {(cfunction_ptr)f_multiply, "_multiply", 3},
   {(cfunction_ptr)f_divide, "_divide", 3},
   {(cfunction_ptr)f_mod, "_mod", 3},
+  {(cfunction_ptr)f_parse, "parse", 1},
   {(cfunction_ptr)f_tonumber, "tonumber", 1},
   {(cfunction_ptr)f_tostring, "tostring", 1},
   {(cfunction_ptr)f_keys, "keys", 1},
