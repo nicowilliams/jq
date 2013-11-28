@@ -1,6 +1,8 @@
 #ifndef JV_H
 #define JV_H
 
+#include <stdint.h>
+
 typedef enum {
   JV_KIND_INVALID,
   JV_KIND_NULL,
@@ -83,7 +85,7 @@ const char* jv_string_value(jv);
 jv jv_string_truncate_bytes(jv j, int bytes);
 jv jv_string_concat(jv, jv);
 jv jv_string_fmt(const char*, ...);
-jv jv_string_append_codepoint(jv a, int c);
+jv jv_string_append_codepoint(jv a, uint32_t c);
 jv jv_string_append_buf(jv a, const char* buf, int len);
 jv jv_string_append_str(jv a, const char* str);
 jv jv_string_explode(jv j);
