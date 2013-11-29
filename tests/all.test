@@ -583,6 +583,14 @@ def inc(x): x |= .+1; inc(.[].a)
 ["fo", "foo", "barfoo", "foobar", "barfoob"]
 [false, true, true, false, false]
 
+[.[]|split(",")]
+["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]
+[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]
+
+[.[]|split(", ")]
+["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]
+[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]
+
 [.[]|(.[0] - .[1])]
 [["fo", "foo"], ["foo", "foo"], ["foobar", "foo"], ["barfoo", "foo"]]
 ["fo","","foobar","bar"]
@@ -590,6 +598,14 @@ def inc(x): x |= .+1; inc(.[].a)
 [.[] * 3]
 ["a", "ab", "abc"]
 ["aaa", "ababab", "abcabcabc"]
+
+[.[] / ","]
+["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]
+[["a"," bc"," def"," ghij"," jklmn"," a","b"," c","d"," e","f"],["a","b","c","d"," e","f","g","h"]]
+
+[.[] / ", "]
+["a, bc, def, ghij, jklmn, a,b, c,d, e,f", "a,b,c,d, e,f,g,h"]
+[["a","bc","def","ghij","jklmn","a,b","c,d","e,f"],["a,b,c,d","e,f,g,h"]]
 
 [.[]|(.[0] % .[1])]
 [["fo", "foo"], ["foo", "foo"], ["foobar", "foo"], ["barfoo", "foo"]]
