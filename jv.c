@@ -1,6 +1,7 @@
+#include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stddef.h>
-#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 
 #include "jv_alloc.h"
 #include "jv.h"
+#include "jv_dtoa.h"
 #include "jv_unicode.h"
 
 /*
@@ -51,7 +53,9 @@ const char* jv_kind_name(jv_kind k) {
   case JV_KIND_NULL:    return "null";
   case JV_KIND_FALSE:   return "boolean";
   case JV_KIND_TRUE:    return "boolean";
-  case JV_KIND_NUMBER:  return "number";
+  case JV_KIND_NUMBER:
+  case JV_KIND_BIGINT:
+  case JV_KIND_BIGREAL: return "number";
   case JV_KIND_STRING:  return "string";
   case JV_KIND_ARRAY:   return "array";
   case JV_KIND_OBJECT:  return "object";
@@ -125,6 +129,23 @@ static void jvp_invalid_free(jv_nontrivial* x) {
 }
 
 /*
+ * Numbers depend on strings to preserve form, so jvp_string gets
+ * declared early.
+ */
+
+typedef struct {
+  jv_refcnt refcnt;
+  uint32_t hash;
+  // high 31 bits are length, low bit is a flag 
+  // indicating whether hash has been computed.
+  uint32_t length_hashed;
+  uint32_t alloc_length;
+  char data[];
+} jvp_string;
+
+static jvp_string* jvp_string_ptr(jv_nontrivial* a);
+
+/*
  * Numbers
  */
 
@@ -136,8 +157,22 @@ jv jv_number(double x) {
 }
 
 double jv_number_value(jv j) {
-  assert(jv_get_kind(j) == JV_KIND_NUMBER);
-  return j.val.number;
+  assert(jv_get_kind(j) == JV_KIND_NUMBER ||
+         jv_get_kind(j) == JV_KIND_BIGINT ||
+         jv_get_kind(j) == JV_KIND_BIGREAL);
+  if (jv_get_kind(j) == JV_KIND_NUMBER)
+    return j.val.number;
+
+  /* XXX Make this a thread-local! */
+  /* XXX Add a jv_number_value() version that takes a dtoa context */
+  struct dtoa_context dtoa;
+  jvp_dtoa_context_init(&dtoa);
+  char *end;
+  double d = jvp_strtod(&dtoa, jvp_string_ptr(&j.val.nontrivial)->data, &end);
+  jvp_dtoa_context_free(&dtoa);
+  if (end == NULL || *end == '\0')
+    return NAN;
+  return d;
 }
 
 
@@ -360,16 +395,6 @@ int jv_array_contains(jv a, jv b) {
 /*
  * Strings (internal helpers)
  */
-
-typedef struct {
-  jv_refcnt refcnt;
-  uint32_t hash;
-  // high 31 bits are length, low bit is a flag 
-  // indicating whether hash has been computed.
-  uint32_t length_hashed;
-  uint32_t alloc_length;
-  char data[];
-} jvp_string;
 
 static jvp_string* jvp_string_ptr(jv_nontrivial* a) {
   return (jvp_string*)a->ptr;

@@ -270,6 +270,21 @@ static pfunc check_literal(struct jv_parser* p) {
         return "Invalid literal";
     TRY(value(p, v));
   } else {
+    TRY(value(p, jv_string_sized(p->tokenbuf, p->tokenpos)));
+    const char *s = jv_string_value(p->next);
+    /*
+     * Preserve original form unless we need to do math on this; delay
+     * call to jvp_strtod()...
+     */
+    // FIXME: better parser
+    p->next.kind = JV_KIND_BIGINT;
+    for (; s != NULL && *s != '\0'; s++) {
+      if (*s == '.') {
+        p->next.kind = JV_KIND_BIGREAL;
+        break;
+      }
+    }
+#if 0
     // FIXME: better parser
     p->tokenbuf[p->tokenpos] = 0; // FIXME: invalid
     char* end = 0;
@@ -277,6 +292,7 @@ static pfunc check_literal(struct jv_parser* p) {
     if (end == 0 || *end != 0)
       return "Invalid numeric literal";
     TRY(value(p, jv_number(d)));
+#endif
   }
   p->tokenpos = 0;
   return 0;

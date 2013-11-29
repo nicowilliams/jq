@@ -10,6 +10,7 @@
 #include "jq_parser.h"
 #include "locfile.h"
 #include "jv.h"
+#include "jv_dtoa.h"
 #include "jq.h"
 #include "parser.h"
 #include "builtin.h"
@@ -28,6 +29,8 @@ struct jq_state {
   int subexp_nest;
   int debug_trace_enabled;
   int initial_execution;
+
+  struct dtoa_context dtoa;
 };
 
 struct closure {
@@ -683,6 +686,8 @@ jq_state *jq_init(void) {
   jq->curr_frame = 0;
 
   jq->path = jv_null();
+
+  jvp_dtoa_context_init(&jq->dtoa);
   return jq;
 }
 
@@ -719,6 +724,7 @@ void jq_teardown(jq_state **jq) {
   *jq = NULL;
 
   jq_reset(old_jq);
+  jvp_dtoa_context_free(&old_jq->dtoa);
   bytecode_free(old_jq->bc);
   old_jq->bc = 0;
 
