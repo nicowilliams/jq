@@ -61,6 +61,7 @@ const char* jv_kind_name(jv_kind k) {
 }
 
 static const jv JV_NULL = {JV_KIND_NULL, {0}};
+static const jv JV_INVALID = {JV_KIND_INVALID, {0}};
 static const jv JV_FALSE = {JV_KIND_FALSE, {0}};
 static const jv JV_TRUE = {JV_KIND_TRUE, {0}};
 
@@ -101,10 +102,12 @@ jv jv_invalid_with_msg(jv err) {
 }
 
 jv jv_invalid() {
-  return jv_invalid_with_msg(jv_null());
+  return JV_INVALID;
 }
 
 jv jv_invalid_get_msg(jv inv) {
+  if (inv.val.nontrivial.ptr == 0)
+    return jv_null();
   jv x = jv_copy(((jvp_invalid*)inv.val.nontrivial.ptr)->errmsg);
   jv_free(inv);
   return x;
@@ -118,6 +121,8 @@ int jv_invalid_has_msg(jv inv) {
 }
 
 static void jvp_invalid_free(jv_nontrivial* x) {
+  if (x->ptr == 0)
+    return;
   if (jvp_refcnt_dec(x)) {
     jv_free(((jvp_invalid*)x->ptr)->errmsg);
     jv_mem_free(x->ptr);
@@ -1189,9 +1194,9 @@ jv jv_copy(jv j) {
   if (jv_get_kind(j) == JV_KIND_ARRAY || 
       jv_get_kind(j) == JV_KIND_STRING || 
       jv_get_kind(j) == JV_KIND_OBJECT ||
-      jv_get_kind(j) == JV_KIND_INVALID) {
+      (jv_get_kind(j) == JV_KIND_INVALID && j.val.nontrivial.ptr != 0)) {
     jvp_refcnt_inc(&j.val.nontrivial);
-  }
+  } 
   return j;
 }
 

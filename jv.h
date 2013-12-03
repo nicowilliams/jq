@@ -134,8 +134,16 @@ void jv_nomem_handler(jv_nomem_handler_f, void *);
 jv jv_load_file(const char *, int);
 
 typedef enum {
-  JV_PARSE_EXPLODE_TOPLEVEL_ARRAY = 1
+  JV_PARSE_EXPLODE_TOPLEVEL_ARRAY = 1,
+  JV_PARSE_IGNORE_MISSING_COMMAS = 2,
+  JV_PARSE_IGNORE_MISSING_VALUES = 4,
+  JV_PARSE_IGNORE_EXTRANEOUS_COMMAS = 8,
+  JV_PARSE_DEFAULT_NAME_VALUES = 16,
+  JV_PARSE_SKIP_BROKEN_TEXT_LINES = 32,
+  JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP = 64,
 } jv_parser_flags;
+#define JV_PARSE_PERMISSIVE \
+    JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP
 struct jv_parser;
 struct jv_parser* jv_parser_new();
 void jv_parser_set_buf(struct jv_parser*, const char*, int, int);

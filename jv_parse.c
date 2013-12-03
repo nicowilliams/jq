@@ -23,6 +23,7 @@ struct jv_parser {
   int curr_buf_pos;
   int curr_buf_is_partial;
   unsigned bom_strip_position;
+  int skip_to_newline;
 
   jv* stack;
   int stackpos;
@@ -58,6 +59,7 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
   p->curr_buf = 0;
   p->curr_buf_length = p->curr_buf_pos = p->curr_buf_is_partial = 0;
   p->bom_strip_position = 0;
+  p->skip_to_newline = 0;
   p->line = 1;
   p->column = 0;
   jvp_dtoa_context_init(&p->dtoa);
@@ -73,7 +75,8 @@ static void parser_free(struct jv_parser* p) {
 }
 
 static pfunc value(struct jv_parser* p, jv val) {
-  if (jv_is_valid(p->next)) return "Expected separator between values";
+  if (jv_is_valid(p->next) && !(p->flags & JV_PARSE_IGNORE_MISSING_VALUES))
+    return "Expected separator between values";
   jv_free(p->next);
   p->next = val;
   return 0;
@@ -92,12 +95,22 @@ static void push(struct jv_parser* p, jv v) {
 static pfunc token(struct jv_parser* p, char ch) {
   switch (ch) {
   case '[':
-    if (jv_is_valid(p->next)) return "Expected separator between values";
+    if (jv_is_valid(p->next)) {
+      if (p->flags & JV_PARSE_IGNORE_MISSING_COMMAS)
+        goto comma;
+      return "Expected separator between values";
+    }
+array:
     push(p, jv_array());
     break;
 
   case '{':
-    if (jv_is_valid(p->next)) return "Expected separator between values";
+    if (jv_is_valid(p->next)) {
+      if (p->flags & JV_PARSE_IGNORE_MISSING_COMMAS)
+        goto comma;
+      return "Expected separator between values";
+    }
+object:
     push(p, jv_object());
     break;
 
@@ -108,18 +121,30 @@ static pfunc token(struct jv_parser* p, char ch) {
       return "':' not as part of an object";
     if (jv_get_kind(p->next) != JV_KIND_STRING)
       return "Object keys must be strings";
+name:
     push(p, p->next);
     p->next = jv_invalid();
     break;
 
   case ',':
+comma:
     if (p->stackpos == 1 && (p->flags & JV_PARSE_EXPLODE_TOPLEVEL_ARRAY) &&
         jv_get_kind(p->stack[0]) == JV_KIND_ARRAY)
+      /* jq --unslurp */
       return 0;
-    if (!jv_is_valid(p->next))
-      return "Expected value before ','";
-    if (p->stackpos == 0)
+    if (!jv_is_valid(p->next)) {
+      if (!(p->flags & JV_PARSE_IGNORE_MISSING_VALUES))
+        return "Expected value before ','";
+      break;
+    }
+    if (p->stackpos == 0 && !(p->flags & JV_PARSE_IGNORE_EXTRANEOUS_COMMAS))
       return "',' not as part of an object or array";
+    if (jv_is_valid(p->next) && (p->flags & JV_PARSE_DEFAULT_NAME_VALUES) &&
+        jv_get_kind(p->next) == JV_KIND_STRING &&
+        jv_get_kind(p->stack[p->stackpos-1]) == JV_KIND_OBJECT) {
+      push(p, p->next);
+      p->next = jv_null();
+    }
     if (jv_get_kind(p->stack[p->stackpos-1]) == JV_KIND_ARRAY) {
       p->stack[p->stackpos-1] = jv_array_append(p->stack[p->stackpos-1], p->next);
       p->next = jv_invalid();
@@ -133,6 +158,14 @@ static pfunc token(struct jv_parser* p, char ch) {
       // this case hits on input like {"a", "b"}
       return "Objects must consist of key:value pairs";
     }
+    switch (ch) {
+      case '[':
+        goto array;
+      case '{':
+        goto object;
+      case ':':
+        goto name;
+    }
     break;
 
   case ']':
@@ -144,7 +177,8 @@ static pfunc token(struct jv_parser* p, char ch) {
         p->next = jv_invalid();
       }
     } else {
-      if (jv_array_length(jv_copy(p->stack[p->stackpos-1])) != 0) {
+      if (jv_array_length(jv_copy(p->stack[p->stackpos-1])) != 0 &&
+          !(p->flags & JV_PARSE_IGNORE_MISSING_VALUES)) {
         // this case hits on input like [1,2,3,]
         return "Expected another array element";
       }
@@ -153,15 +187,23 @@ static pfunc token(struct jv_parser* p, char ch) {
       jv_free(p->stack[--p->stackpos]);
     } else {
       jv_free(p->next);
-      p->next = p->stack[--p->stackpos];
+      p->next = p->stack[p->stackpos - 1];
+      p->stack[--p->stackpos] = jv_invalid();
     }
     break;
 
   case '}':
     if (p->stackpos == 0)
       return "Unmatched '}'";
+    if (jv_is_valid(p->next) && (p->flags & JV_PARSE_DEFAULT_NAME_VALUES) &&
+        jv_get_kind(p->next) == JV_KIND_STRING &&
+        jv_get_kind(p->stack[p->stackpos-1]) == JV_KIND_OBJECT) {
+      push(p, p->next);
+      p->next = jv_null();
+    }
     if (jv_is_valid(p->next)) {
       if (jv_get_kind(p->stack[p->stackpos-1]) != JV_KIND_STRING)
+        // this case looks like {1} or {"a",...}
         return "Objects must consist of key:value pairs";
       assert(p->stackpos > 1 && jv_get_kind(p->stack[p->stackpos-2]) == JV_KIND_OBJECT);
       p->stack[p->stackpos-2] = jv_object_set(p->stack[p->stackpos-2], 
@@ -171,7 +213,8 @@ static pfunc token(struct jv_parser* p, char ch) {
     } else {
       if (jv_get_kind(p->stack[p->stackpos-1]) != JV_KIND_OBJECT)
         return "Unmatched '}'";
-      if (jv_object_length(jv_copy(p->stack[p->stackpos-1])) != 0)
+      if (jv_object_length(jv_copy(p->stack[p->stackpos-1])) != 0 &&
+          !(p->flags & JV_PARSE_IGNORE_MISSING_VALUES))
         return "Expected another key-value pair";
     }
     jv_free(p->next);
@@ -341,9 +384,12 @@ static int check_done(struct jv_parser* p, jv* out) {
 static pfunc scan(struct jv_parser* p, char ch, jv* out) {
   p->column++;
   if (ch == '\n') {
+    p->skip_to_newline = 0;
     p->line++;
     p->column = 0;
   }
+  if (p->skip_to_newline)
+    return OK;
   presult answer = 0;
   if (p->st == JV_PARSER_NORMAL) {
     chclass cls = classify(ch);
@@ -425,7 +471,7 @@ void jv_parser_set_buf(struct jv_parser* p, const char* buf, int length, int is_
 jv jv_parser_next(struct jv_parser* p) {
   assert(p->curr_buf && "a buffer must be provided");
   if (p->bom_strip_position == 0xff) return jv_invalid_with_msg(jv_string("Malformed BOM"));
-  jv value;
+  jv value = jv_invalid();
   presult msg = 0;
   while (!msg && p->curr_buf_pos < p->curr_buf_length) {
     char ch = p->curr_buf[p->curr_buf_pos++];
@@ -434,6 +480,39 @@ jv jv_parser_next(struct jv_parser* p) {
   if (msg == OK) {
     return value;
   } else if (msg) {
+    if ((p->flags & JV_PARSE_SKIP_BROKEN_TEXT_LINES) ||
+        (p->flags & JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP)) {
+      /* Pop everything on the p->stack[] and don't fail */
+      p->skip_to_newline = 1;
+      p->curr_buf_is_partial = 1;
+      while (p->stackpos > 0) {
+        if (jv_get_kind(p->stack[p->stackpos-1]) == JV_KIND_OBJECT) {
+          jv_free(p->next);
+          p->next = jv_invalid();
+          p->skip_to_newline = 0;
+          msg = scan(p, '}', &value);
+          p->skip_to_newline = 1;
+        } else if (jv_get_kind(p->stack[p->stackpos-1]) == JV_KIND_ARRAY) {
+          p->skip_to_newline = 0;
+          msg = scan(p, ']', &value);
+          p->skip_to_newline = 1;
+        } else {
+          jv_free(p->stack[--p->stackpos]);
+        }
+      }
+      while (p->curr_buf_pos < p->curr_buf_length) {
+        if (p->curr_buf[p->curr_buf_pos++] == '\n') {
+          p->skip_to_newline = 0;
+          break;
+        }
+      }
+      if ((p->flags & JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP) &&
+          jv_is_valid(value))
+        return value;
+      jv_free(value);
+      jv_free(p->next);
+      return jv_invalid();
+    }
     return jv_invalid_with_msg(jv_string_fmt("%s at line %d, column %d", msg, p->line, p->column));
   } else if (p->curr_buf_is_partial) {
     assert(p->curr_buf_pos == p->curr_buf_length);
