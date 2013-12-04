@@ -137,6 +137,23 @@ sections:
         formatted as a JSON string with quotes. This can be useful for
         making jq filters talk to non-JSON-based systems.
 
+      * `--tolerate-malformed-inputs` / `-t`:
+
+        Tolerate malformed JSON text inputs, such as: unexpected commas
+        / missing values, or missing values for keys (assign null).
+
+      * `--ignore-malformed-inputs` / `-i`:
+
+        Ignore malformed JSON text inputs.  jq will read and discard all
+        input bytes until a newline is found.
+
+      * `--keep-malformed-inputs` / `-k`:
+
+        Ignore malformed JSON text inputs.  jq will read and discard all
+        input bytes until a newline is found but will close any
+        arrays/objects that were open when garbage was found, and it
+        will produce the resulting value.
+
       * `-f filename` / `--from-file filename`:
 
         Read filter from the file rather than from a command line, like
