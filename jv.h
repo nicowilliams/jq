@@ -142,8 +142,12 @@ typedef enum {
   JV_PARSE_SKIP_BROKEN_TEXT_LINES = 32,
   JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP = 64,
 } jv_parser_flags;
-#define JV_PARSE_PERMISSIVE \
-    JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP
+#define JV_PARSE_TOLERANT \
+    JV_PARSE_IGNORE_MISSING_COMMAS | \
+    JV_PARSE_IGNORE_MISSING_VALUES | \
+    JV_PARSE_IGNORE_EXTRANEOUS_COMMAS | \
+    JV_PARSE_DEFAULT_NAME_VALUES
+    
 struct jv_parser;
 struct jv_parser* jv_parser_new();
 void jv_parser_set_buf(struct jv_parser*, const char*, int, int);

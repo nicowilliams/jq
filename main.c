@@ -173,6 +173,12 @@ int main(int argc, char* argv[]) {
       } else {
         program = argv[i];
       }
+    } else if (isoption(argv[i], 't', "tolerate-malformed-inputs")) {
+      parser_flags = JV_PARSE_TOLERANT;
+    } else if (isoption(argv[i], 'i', "ignore-malformed-inputs")) {
+      parser_flags = JV_PARSE_SKIP_BROKEN_TEXT_LINES;
+    } else if (isoption(argv[i], 'k', "keep-malformed-inputs")) {
+      parser_flags = JV_PARSE_SKIP_BROKEN_TEXT_LINES_KEEP;
     } else if (isoption(argv[i], 's', "slurp")) {
       options |= SLURP;
     } else if (isoption(argv[i], 'r', "raw-output")) {
