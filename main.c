@@ -52,9 +52,6 @@ static void die() {
   exit(2);
 }
 
-
-
-
 static int isoptish(const char* text) {
   return text[0] == '-' && (text[1] == '-' || isalpha(text[1]));
 }
@@ -93,8 +90,9 @@ enum {
   EXIT_STATUS           = 4096,
   IN_PLACE              = 8192,
   SEQ                   = 16384,
+  ARGS                  = 32768,
   /* debugging only */
-  DUMP_DISASM           = 32768,
+  DUMP_DISASM           = 65536,
 };
 static int options = 0;
 
@@ -207,7 +205,6 @@ int main(int argc, char* argv[]) {
   const char* program = 0;
   input_filenames = jv_mem_alloc(sizeof(const char*) * argc);
   ninput_files = 0;
-  int further_args_are_files = 0;
   int jq_flags = 0;
   size_t short_opts = 0;
   jv program_arguments = jv_array();
@@ -360,33 +357,74 @@ int main(int argc, char* argv[]) {
         jq_flags |= JQ_DEBUG_TRACE;
         if (!short_opts) continue;
       }
-      if (isoption(argv[i], 'h', "help", &short_opts)) {
-        usage(0);
+      if (isoption(argv[i], 0, "args", &short_opts)) {
+        options |= ARGS;
         if (!short_opts) continue;
       }
-      if (isoption(argv[i], 'V', "version", &short_opts)) {
-        printf("jq-%s\n", JQ_VERSION);
-        ret = 0;
-        goto out;
-      }
-      if (isoption(argv[i],  0,  "allow-open", &short_opts)) {
-        jq_flags |= JQ_OPEN_FILES;
-        if (!short_opts) continue;
-      }
-      if (isoption(argv[i],  0,  "allow-write", &short_opts)) {
-        jq_flags |= JQ_OPEN_FILES | JQ_OPEN_WRITE;
-        if (!short_opts) continue;
-      }
-      if (isoption(argv[i],  0,  "allow-exec", &short_opts)) {
-        jq_flags |= JQ_EXEC;
-        if (!short_opts) continue;
-      }
-
-      // check for unknown options... if this argument was a short option
-      if (strlen(argv[i]) != short_opts + 1) {
-        fprintf(stderr, "%s: Unknown option %s\n", progname, argv[i]);
+      jv arg = jv_object();
+      arg = jv_object_set(arg, jv_string("name"), jv_string(argv[i+1]));
+      arg = jv_object_set(arg, jv_string("value"), jv_string(argv[i+2]));
+      program_arguments = jv_array_append(program_arguments, arg);
+      i += 2; // skip the next two arguments
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i], 0, "argfile", &short_opts)) {
+      if (i >= argc - 2) {
+        fprintf(stderr, "%s: --argfile takes two parameters (e.g. -a varname filename)\n", progname);
         die();
       }
+      jv arg = jv_object();
+      arg = jv_object_set(arg, jv_string("name"), jv_string(argv[i+1]));
+      jv data = jv_load_file(argv[i+2], 0);
+      if (!jv_is_valid(data)) {
+        data = jv_invalid_get_msg(data);
+        fprintf(stderr, "%s: Bad JSON in --argfile %s %s: %s\n", progname,
+                argv[i+1], argv[i+2], jv_string_value(data));
+        jv_free(data);
+        ret = 2;
+        goto out;
+      }
+      if (jv_get_kind(data) == JV_KIND_ARRAY && jv_array_length(jv_copy(data)) == 1)
+          data = jv_array_get(data, 0);
+      arg = jv_object_set(arg, jv_string("value"), data);
+      program_arguments = jv_array_append(program_arguments, arg);
+      i += 2; // skip the next two arguments
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i],  0,  "debug-dump-disasm", &short_opts)) {
+      options |= DUMP_DISASM;
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i],  0,  "debug-trace", &short_opts)) {
+      jq_flags |= JQ_DEBUG_TRACE;
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i], 'h', "help", &short_opts)) {
+      usage(0);
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i], 'V', "version", &short_opts)) {
+      printf("jq-%s\n", JQ_VERSION);
+      ret = 0;
+      goto out;
+    }
+    if (isoption(argv[i],  0,  "allow-open", &short_opts)) {
+      jq_flags |= JQ_OPEN_FILES;
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i],  0,  "allow-write", &short_opts)) {
+      jq_flags |= JQ_OPEN_FILES | JQ_OPEN_WRITE;
+      if (!short_opts) continue;
+    }
+    if (isoption(argv[i],  0,  "allow-exec", &short_opts)) {
+      jq_flags |= JQ_EXEC;
+      if (!short_opts) continue;
+    }
+
+    // check for unknown options... if this argument was a short option
+    if (strlen(argv[i]) != short_opts + 1) {
+      fprintf(stderr, "%s: Unknown option %s\n", progname, argv[i]);
+      die();
     }
   }
 
@@ -451,6 +489,23 @@ int main(int argc, char* argv[]) {
       exit(3);
     }
   }
+
+  /* Remaining arguments are... */
+  if (options & ARGS) {
+    /* ...strings, as an array */
+    args = jv_array_sized(argc - i);
+    for (; i < argc; i++)
+      args = jv_array_append(args, jv_string(argv[i]));
+    jv arg = jv_object();
+    arg = jv_object_set(arg, jv_string("name"), jv_string("args"));
+    arg = jv_object_set(arg, jv_string("value"), args);
+    program_arguments = jv_array_append(program_arguments, arg);
+  } else {
+    /* ...input files */
+    for (; i < argc; i++)
+      input_filenames[ninput_files++] = argv[i];
+  }
+
   if (ninput_files == 0) current_input = stdin;
 
   if ((options & PROVIDE_NULL) && (options & (RAW_INPUT | SLURP))) {
