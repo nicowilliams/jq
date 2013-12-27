@@ -956,7 +956,21 @@ static jv f_has(jq_state *jq, jv input, jv k) {
   return jv_has(input, k);
 }
 
+static jv f_BEGIN(jq_state *jq, jv input) {
+  if (jq_flags(jq) & JQ_BEGIN)
+    return jv_true();
+  return jv_false();
+}
+
+static jv f_END(jq_state *jq, jv input) {
+  if (jq_flags(jq) & JQ_END)
+    return jv_true();
+  return jv_false();
+}
+
 static const struct cfunction function_list[] = {
+  {(cfunction_ptr)f_BEGIN, "_begin", 1},
+  {(cfunction_ptr)f_END, "_end", 1},
   {(cfunction_ptr)f_floor, "_floor", 1},
   {(cfunction_ptr)f_sqrt, "_sqrt", 1},
   {(cfunction_ptr)f_plus, "_plus", 3},
@@ -1051,9 +1065,18 @@ static block bind_bytecoded_builtins(block b) {
 }
 
 static const char* const jq_builtins[] = {
+  /*
+   * _begin_main_end is for jq programs with BEGIN but no END
+   * _begin is for jq programs with END but no BEGIN
+   * _end is for jq programs with BEGIN and END functions
+   */
+  "def BEGIN: empty;",
+  "def END: empty;",
   "def map(f): [.[] | f];",
   "def select(f): if f then . else empty end;",
   "def read(handle; flags): _read(handle; flags)|if length == 0 then empty elif length == 2 then . else .[0] end;",
+  /* `read` turns EOF from `_read` into `empty` */
+  "def read: _read|if length == 0 then empty elif length == 2 then . else .[0] end;",
   "def sort_by(f): _sort_by_impl(map([f]));",
   "def group_by(f): _group_by_impl(map([f]));",
   "def unique: group_by(.) | map(.[0]);",
