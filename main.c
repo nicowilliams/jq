@@ -67,6 +67,8 @@ static int options = 0;
 
 static int process(jq_state *jq, jv value, int flags) {
   int ret = 14; // No valid results && -e -> exit(4)
+  if (flags & (JQ_BEGIN|JQ_END))
+    ret = 0;
   jq_start(jq, value, flags);
   jv result;
   while (jv_is_valid(result = jq_next(jq))) {
@@ -89,13 +91,18 @@ static int process(jq_state *jq, jv value, int flags) {
       if (options & COLOUR_OUTPUT) dumpopts |= JV_PRINT_COLOUR;
       if (options & NO_COLOUR_OUTPUT) dumpopts &= ~JV_PRINT_COLOUR;
       if (options & UNBUFFERED_OUTPUT) dumpopts |= JV_PRINT_UNBUFFERED;
-      if (jv_get_kind(result) == JV_KIND_FALSE || jv_get_kind(result) == JV_KIND_NULL)
+
+      if (jv_get_kind(result) == JV_KIND_FALSE)
         ret = 11;
+      else if (jv_get_kind(result) == JV_KIND_NULL && !((flags & (JQ_BEGIN|JQ_END))))
+        ret = 0;
       else
         ret = 0;
-      jv_dump(result, dumpopts);
+      if (!(flags & JQ_BEGIN) && !(flags & JQ_END))
+        jv_dump(result, dumpopts);
     }
-    printf("\n");
+    if (!(flags & JQ_BEGIN) && !(flags & JQ_END))
+      printf("\n");
   }
   jv_free(result);
   return ret;
@@ -132,6 +139,7 @@ static int read_more(char* buf, size_t size) {
 int main(int argc, char* argv[]) {
   jq_state *jq = NULL;
   int ret = 0;
+  int ret_end;
   int compiled = 0;
 
   if (argc) progname = argv[0];
@@ -303,6 +311,10 @@ int main(int argc, char* argv[]) {
   jq_handle_create_stdio(jq, 2, stderr, 0, 0);
   jq_handle_create_buffer(jq, 3);
 
+  ret = process(jq, jv_null(), jq_flags | JQ_BEGIN);
+  if (ret != 0)
+    goto out;
+
   if (options & PROVIDE_NULL) {
     ret = process(jq, jv_null(), jq_flags);
   } else {
@@ -355,6 +367,9 @@ int main(int argc, char* argv[]) {
       ret = process(jq, slurped, jq_flags);
     }
   }
+  ret_end = process(jq, jv_null(), jq_flags | JQ_END);
+  if (ret_end != 0)
+    ret = ret_end;
 out:
   jv_mem_free(input_filenames);
   jq_teardown(&jq);

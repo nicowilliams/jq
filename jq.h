@@ -9,6 +9,8 @@ typedef enum jq_runtime_flags {
   JQ_OPEN_FILES = 2,    /* jq program allowed to open any file */
   JQ_OPEN_WRITE = 4,    /* jq program allowed to open files for writing */
   JQ_EXEC = 4,          /* jq program allowed to popen() */
+  JQ_BEGIN = 8,         /* run the END() function, if there is one */
+  JQ_END = 16,          /* run the END() function, if there is one */
 } jq_runtime_flags;
 
 typedef struct jq_state jq_state;
@@ -21,6 +23,8 @@ void jq_set_nomem_handler(jq_state *, void (*)(void *), void *);
 int jq_compile(jq_state *, const char* str);
 int jq_compile_args(jq_state *, const char* str, jv args);
 void jq_dump_disassembly(jq_state *, int);
+int jq_is_first(jq_state *);
+int jq_is_last(jq_state *);
 void jq_start(jq_state *, jv value, jq_runtime_flags flags);
 jq_runtime_flags jq_flags(jq_state *);
 jv jq_next(jq_state *);
