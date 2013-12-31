@@ -642,11 +642,11 @@ static jv f_feof(jq_state *jq, jv handle) {
     return jv_true();
   if (jq_handle_get(jq, "buffer", hdl, NULL, NULL))
     return jv_false();
-  FILE *f = NULL;
-  if (jq_handle_get(jq, "FILE", hdl, (void **)&f, NULL))
+  struct jq_stdio_handle *h;
+  if (!jq_handle_get(jq, "FILE", hdl, (void **)&h, NULL))
     return jv_false();
-  if (f != NULL)
-    return feof(f) ? jv_true() : jv_false();
+  if (h != NULL)
+    return feof(h->f) ? jv_true() : jv_false();
   return jv_invalid_with_msg(jv_string_fmt("unknown file handle type for %d", hdl));
 }
 
@@ -1049,6 +1049,58 @@ static block bind_bytecoded_builtins(block b) {
                                               gen_param("arg"),
                                               builtin_def_1arg[i].code));
     }
+  }
+  {
+    /*
+     * The sequence should be:
+     *  LOADK true
+     *  DUP
+     *  STOREV true into cond:...
+     *  REPEAT (checks cond:..., backtracks if false)
+     *  CALL_JQ "cond" (no args)
+     *  STOREV top of stack into cond:...
+     *  JUMP_T past the next op
+     *  BACKTRACK
+     *
+     * REPEAT should backtrack when the top of the stack is false.
+     */
+    block repeatvar = gen_op_var_fresh(STOREV, "repeatvar");
+    block noop = gen_op_simple(NOOP);
+    block body = BLOCK(
+        BLOCK(gen_const(jv_true()),             // true on top of stack
+              repeatvar,                        // save that to repeatvar
+              gen_op_bound(REPEAT_T, repeatvar),// repeat program if repeatvar has true-ish
+              gen_call("cond", gen_noop())),    // call argument lambda
+        BLOCK(gen_op_simple(DUP),               // we need this for the STOREV and JUMP_T
+              gen_op_bound(STOREV, repeatvar),  // save for REPEAT_T
+              gen_op_target(JUMP_T, noop),      // backtrack if cond expr was false
+              gen_op_simple(BACKTRACK),
+              noop));
+    builtins = BLOCK(builtins, gen_function("while",
+                                            gen_param("cond"),
+                                            body));
+  }
+  {
+    /*
+     * We could define `until` as 'def until(cond): while(cond|not);'...
+     *
+     * ...or `while` as 'def while(cond): until(cond|not);'.  
+     */
+    block repeatvar = gen_op_var_fresh(STOREV, "repeatvar");
+    block noop = gen_op_simple(NOOP);
+    block body = BLOCK(
+        BLOCK(gen_const(jv_false()),
+              repeatvar,
+              gen_op_bound(REPEAT_F, repeatvar),
+              gen_call("cond", gen_noop())),
+        BLOCK(gen_op_simple(DUP),
+              gen_op_bound(STOREV, repeatvar),
+              gen_op_target(JUMP_F, noop),
+              gen_op_simple(BACKTRACK),
+              noop));
+    builtins = BLOCK(builtins, gen_function("until",
+                                            gen_param("cond"),
+                                            body));
   }
   {
     block rangevar = gen_op_var_fresh(STOREV, "rangevar");
