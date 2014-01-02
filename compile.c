@@ -368,7 +368,7 @@ block gen_definedor(block a, block b) {
 }
 
 block gen_top_level(block top) {
-  block chk_begin = BLOCK(gen_call("_begin", gen_noop()));
+  block chk_begin = BLOCK(gen_op_simple(TOP), gen_call("_begin", gen_noop()));
   block chk_end = BLOCK(gen_call("_end", gen_noop()));
   block elif_chk_end = gen_cond(chk_end, gen_call("END", gen_noop()), top);
   return gen_cond(chk_begin, gen_call("BEGIN", gen_noop()), elif_chk_end);

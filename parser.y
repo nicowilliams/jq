@@ -197,7 +197,7 @@ static block gen_update(block object, block val, int optype) {
 %%
 TopLevel:
 Exp {
-  *answer = block_join(gen_op_simple(TOP), $1);
+  *answer = gen_top_level($1);
 } |
 FuncDefs {
   *answer = $1;
@@ -213,11 +213,6 @@ FuncDef FuncDefs {
 
 Exp:
 FuncDef Exp %prec ';' {
-  /*
-   * XXX NOT RIGHT.  We only want to gen_top_level when $2 is a
-   * not a FuncDef.  We could do this by checking that $2 doesn't start
-   * with a CLOSURE_CREATE?
-   */
   if (block_is_funcdef($2))
     $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
   else
