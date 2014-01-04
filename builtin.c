@@ -1100,8 +1100,6 @@ static const char* const jq_builtins[] = {
   "def map(f): [.[] | f];",
   "def select(f): if f then . else empty end;",
   "def read(handle; flags): _read(handle; flags)|if length == 0 then empty elif length == 2 then . else .[0] end;",
-  /* `read` turns EOF from `_read` into `empty` */
-  "def read: _read|if length == 0 then empty elif length == 2 then . else .[0] end;",
   "def sort_by(f): _sort_by_impl(map([f]));",
   "def group_by(f): _group_by_impl(map([f]));",
   "def unique: group_by(.) | map(.[0]);",
