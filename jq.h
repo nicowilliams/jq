@@ -13,6 +13,12 @@ typedef enum jq_runtime_flags {
   JQ_END = 16,          /* run the END() function, if there is one */
 } jq_runtime_flags;
 
+typedef enum jq_compile_flags {
+  JQ_BEGIN_END = 1,     // generate bytecode for BEGIN/END invocation;
+                        // jq_start() caller will include JQ_BEGIN/END
+                        // flags as necessary.
+} jq_compile_flags;
+
 typedef struct jq_state jq_state;
 typedef void (*jq_err_cb)(void *, jv);
 
@@ -20,12 +26,12 @@ jq_state *jq_init(void);
 void jq_set_error_cb(jq_state *, jq_err_cb, void *);
 void jq_get_error_cb(jq_state *, jq_err_cb *, void **);
 void jq_set_nomem_handler(jq_state *, void (*)(void *), void *);
-int jq_compile(jq_state *, const char* str);
-int jq_compile_args(jq_state *, const char* str, jv args);
+int jq_compile(jq_state *, const char*);
+int jq_compile_args(jq_state *, const char*, jq_compile_flags, jv);
 void jq_dump_disassembly(jq_state *, int);
 int jq_is_first(jq_state *);
 int jq_is_last(jq_state *);
-void jq_start(jq_state *, jv value, jq_runtime_flags flags);
+void jq_start(jq_state *, jv value, jq_runtime_flags);
 jq_runtime_flags jq_flags(jq_state *);
 jv jq_next(jq_state *);
 int jq_handle_create(jq_state *, int, const char *, void *, void (*)(void *));
