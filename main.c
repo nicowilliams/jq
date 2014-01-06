@@ -291,10 +291,10 @@ int main(int argc, char* argv[]) {
       ret = 2;
       goto out;
     }
-    compiled = jq_compile_args(jq, jv_string_value(data), program_arguments);
+    compiled = jq_compile_args(jq, jv_string_value(data), JQ_BEGIN_END, program_arguments);
     jv_free(data);
   } else {
-    compiled = jq_compile_args(jq, program, program_arguments);
+    compiled = jq_compile_args(jq, program, JQ_BEGIN_END, program_arguments);
   }
   if (!compiled){
     ret = 3;

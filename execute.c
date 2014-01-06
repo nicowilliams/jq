@@ -911,7 +911,7 @@ void jq_teardown(jq_state **jq) {
   jv_mem_free(old_jq);
 }
 
-int jq_compile_args(jq_state *jq, const char* str, jv args) {
+int jq_compile_args(jq_state *jq, const char* str, jq_compile_flags flags, jv args) {
   jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   assert(jv_get_kind(args) == JV_KIND_ARRAY);
   struct locfile locations;
@@ -924,6 +924,8 @@ int jq_compile_args(jq_state *jq, const char* str, jv args) {
   }
   int nerrors = jq_parse(&locations, &program);
   if (nerrors == 0) {
+    if (flags & JQ_BEGIN_END)
+      program = gen_begin_end(program);
     for (int i=0; i<jv_array_length(jv_copy(args)); i++) {
       jv arg = jv_array_get(jv_copy(args), i);
       jv name = jv_object_get(jv_copy(arg), jv_string("name"));
@@ -953,7 +955,7 @@ int jq_compile_args(jq_state *jq, const char* str, jv args) {
 }
 
 int jq_compile(jq_state *jq, const char* str) {
-  return jq_compile_args(jq, str, jv_array());
+  return jq_compile_args(jq, str, 0, jv_array());
 }
 
 void jq_dump_disassembly(jq_state *jq, int indent) {
