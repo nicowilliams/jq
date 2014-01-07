@@ -43,7 +43,8 @@ struct jq_state {
   jq_handle *handles;
   int nhandles;
 
-  jq_runtime_flags flags;
+  jq_compile_flags cflags;
+  jq_runtime_flags rflags;
 };
 
 int jq_handle_create(jq_state *jq,
@@ -396,6 +397,13 @@ jv jq_next(jq_state *jq) {
   jv cfunc_input[MAX_CFUNCTION_ARGS];
 
   jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
+
+  /*
+   * Default BEGIN/END for programs that don't get the gen_begin_end()
+   * treatment.  (That's programs that define no defs.)
+   */
+  if (!(jq->cflags & JQ_BEGIN_END) && (jq->rflags & (JQ_BEGIN|JQ_END)))
+    return jv_true();
 
   uint16_t* pc = stack_restore(jq);
   assert(pc);
@@ -898,7 +906,7 @@ void jq_start(jq_state *jq, jv input, jq_runtime_flags flags) {
   jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   jq_reset(jq);
 
-  jq->flags = flags;
+  jq->rflags = flags;
   
   struct closure top = {jq->bc, -1};
   struct frame* top_frame = frame_push(jq, top, 0, 0);
@@ -916,7 +924,7 @@ void jq_start(jq_state *jq, jv input, jq_runtime_flags flags) {
 }
 
 jq_runtime_flags jq_flags(jq_state *jq) {
-  return jq->flags;
+  return jq->rflags;
 }
 
 void jq_teardown(jq_state **jq) {
@@ -950,8 +958,14 @@ int jq_compile_args(jq_state *jq, const char* str, jq_compile_flags flags, jv ar
   }
   int nerrors = jq_parse(&locations, &program);
   if (nerrors == 0) {
-    if (flags & JQ_BEGIN_END)
-      program = gen_begin_end(program);
+    /*
+     * Ideally we'd gen_begin_end() here, if (flags & JQ_BEGIN_END).
+     * But that doesn't work because the functions we want to bind the
+     * new instructions to are already in program.  We need a new binder
+     * function to deal with this.  For now we record JQ_BEGIN_END and
+     * deal with it as a run-time flag.
+     */
+    jq->cflags = flags;
     for (int i=0; i<jv_array_length(jv_copy(args)); i++) {
       jv arg = jv_array_get(jv_copy(args), i);
       jv name = jv_object_get(jv_copy(arg), jv_string("name"));

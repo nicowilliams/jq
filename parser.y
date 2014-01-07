@@ -216,7 +216,7 @@ FuncDef Exp %prec ';' {
   if (block_is_funcdef($2))
     $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
   else
-    $$ = block_bind($1, BLOCK(gen_op_simple(TOP), $2), OP_IS_CALL_PSEUDO);
+    $$ = block_bind($1, BLOCK(gen_op_simple(TOP), gen_begin_end($2)), OP_IS_CALL_PSEUDO);
 } |
 
 Term "as" '$' IDENT '|' Exp {
