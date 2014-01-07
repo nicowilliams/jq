@@ -386,6 +386,72 @@ static void jq_reset(jq_state *jq) {
   jq->subexp_nest = 0;
 }
 
+static jv eval_setup_handles(jq_state *jq, jq_state *jq2, jv handles) {
+  if (jv_get_kind(handles) == JV_KIND_INVALID) {
+    jv_free(handles);
+    return jv_null();
+  }
+  if (jv_get_kind(handles) == JV_KIND_NULL) {
+    jq_handle_create_null(jq2, 0, 0, 0);
+    jq_handle_create_null(jq2, 1, 0, 0);
+    jq_handle_create_null(jq2, 2, 0, 0);
+    jq_handle_create_null(jq2, 3, 0, 0);
+    jv_free(handles);
+    return jv_null();
+  }
+  if (jv_get_kind(handles) != JV_KIND_ARRAY) {
+    jv_free(handles);
+    return type_error(handle, "not an I/O handle specification for eval");
+  }
+
+  int i, hdl;
+  jv_array_foreach(a, i, handle) {
+    if (jv_get_kind(handle) == JV_KIND_NUMBER) {
+      // get the raw handle from jq and re-create it in jq2
+      // XXX Need an upgraded jq_handle_get()
+      hdl = jv_number_value(handle);
+    } else if (jv_get_kind(handle) == JV_KIND_NULL) {
+      jq_handle_create_null(jq2, i, 0, 0);
+    } else {
+      jv_free(input);
+      jv_free(options);
+      jq_teardown(jq2);
+      return type_error(handle, "not an I/O handle specification for eval");
+    }
+    jv_free(handle);
+  }
+}
+
+static jv eval_setup(jq_state *jq, jq_state **jq2, jv prog; jv options) {
+  if (jv_get_kind(prog) != JV_KIND_STRING) {
+        jv_free(options);
+        return type_error(handle, "not an I/O handle specification for eval");
+  }
+  if (jv_get_kind(options) == JV_KIND_NULL)
+    options = jv_object()
+  else if (jv_get_kind(options) != JV_KIND_OBJECT)
+    return type_error(options, "not an options object for eval");
+
+  jv k = jv_null();
+
+  *jq2 = jq_init();
+  if (*jq2 == NULL)
+    return jv_invalid_with_msg(jv_string("no memory"));
+  // XXX jq_set_error_cb()
+
+  jv args = jv_object_get(jv_copy(options), jv_string("args"));
+  jv begin_end = jv_object_get(jv_copy(options), jv_string("begin_end"));
+  jv res = eval_setup_handles(jq, *jq2, jv_object_get(options, jv_string("handles")));
+  if (jv_get_kind(res) == JV_KIND_INVALID) {
+    jq_teardown(jq2);
+    return res;
+  }
+  int compiled = jq_compile_args(*jq2, jv_string_value(prog),
+                                 jv_get_kind(begin_end) == JV_KIND_TRUE ? JQ_BEGIN_END : 0,
+                                 args);
+  return compiled ? jv_true() : jv_false();
+}
+
 static void print_error(jq_state *jq, jv value) {
   assert(!jv_is_valid(value));
   jv msg = jv_invalid_get_msg(value);
