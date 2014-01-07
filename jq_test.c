@@ -256,7 +256,67 @@ static void jv_test() {
   /// Compile errors
   {
     jq_state *jq = jq_init();
-    jq_compile_args(jq, "}", 0, jv_array());
+    int compiled = jq_compile_args(jq, "}", 0, jv_array());
+    assert(!compiled);
+    jq_teardown(&jq);
+  }
+
+  // while/until and I/O
+  {
+    FILE *in = tmpfile();
+    FILE *out = tmpfile();
+    fprintf(in, "0\n1\n2\n");
+    fflush(in);
+    rewind(in);
+
+    /*
+     * Roughly like:
+     *
+     *     % printf '1\n2\n3\n' | jq -n 'until(eof(0))|read(0;{})|write(0;{})|empty'
+     */
+    jq_state *jq = jq_init();
+    jq_handle_create_stdio(jq, 0, in, 0, 0);
+    jq_handle_create_stdio(jq, 1, out, 0, 0);
+    jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+    jq_handle_create_buffer(jq, 3);
+    jq_compile_args(jq, "until(eof(0))|read(0;{})|write(1;{})|empty", 0, jv_array());
+    jq_start(jq, jv_null(), 0);
+    jv res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_INVALID);
+    jq_teardown(&jq);
+
+    char buf[64];
+    rewind(out);
+    int i = 0;
+    while (fgets(buf, sizeof(buf), out)) {
+      switch (i) {
+      case 0: assert(strcmp(buf, "0\n") == 0); break;
+      case 1: assert(strcmp(buf, "1\n") == 0); break;
+      case 2: assert(strcmp(buf, "2\n") == 0); break;
+      }
+      i++;
+    }
+    assert(i == 3);
+
+    /*
+     * Roughly like:
+     *
+     *     % printf '1\n2\n3\n' | jq -n 'def END: read(3;{}); until(eof(0))|read(0;{})|write(3;{})|empty'
+     */
+    rewind(in);
+    fclose(out);
+    jq = jq_init();
+    jq_handle_create_stdio(jq, 0, in, 0, 0);
+    jq_handle_create_stdio(jq, 1, stderr, 0, 0);
+    jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+    jq_handle_create_buffer(jq, 3);
+    jq_compile_args(jq, "def BEGIN: true; def END: read(3;{}); until(eof(0))|read(0;{})|write(3;{})|empty", JQ_BEGIN_END, jv_array());
+    jq_start(jq, jv_null(), 0);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_INVALID);
+    jq_start(jq, jv_null(), JQ_END);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_NUMBER && jv_number_value(res) == 2);
     jq_teardown(&jq);
   }
 }
