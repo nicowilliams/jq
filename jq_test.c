@@ -265,14 +265,21 @@ static void jv_test() {
   {
     FILE *in = tmpfile();
     FILE *out = tmpfile();
-    fprintf(in, "0\n1\n2\n");
+    fprintf(in, "0\n\"foo\"\n2\n");
     fflush(in);
     rewind(in);
 
     /*
+     * Test stdio I/O handles, read, write, eof, until.
+     *
      * Roughly like:
      *
-     *     % printf '1\n2\n3\n' | jq -n 'until(eof(0))|read(0;{})|write(0;{})|empty'
+     *     % printf '0\n"foo"\n2\n' | jq -n 'until(eof(0))|read(0;{})|write(0;{})|empty'
+     *
+     * then make sure that we find '1\n"foo"\n3\n' in the output.
+     *
+     * (We don't just use numbers to make sure that we don't leak jv's
+     * that need jv_free()ing.)
      */
     jq_state *jq = jq_init();
     jq_handle_create_stdio(jq, 0, in, 0, 0);
@@ -283,6 +290,7 @@ static void jv_test() {
     jq_start(jq, jv_null(), 0);
     jv res = jq_next(jq);
     assert(jv_get_kind(res) == JV_KIND_INVALID);
+    jv_free(res);
     jq_teardown(&jq);
 
     char buf[64];
@@ -291,20 +299,26 @@ static void jv_test() {
     while (fgets(buf, sizeof(buf), out)) {
       switch (i) {
       case 0: assert(strcmp(buf, "0\n") == 0); break;
-      case 1: assert(strcmp(buf, "1\n") == 0); break;
+      case 1: assert(strcmp(buf, "\"foo\"\n") == 0); break;
       case 2: assert(strcmp(buf, "2\n") == 0); break;
       }
       i++;
     }
     assert(i == 3);
+    fclose(out);
 
     /*
+     * Test buffer I/O handles.
+     *
      * Roughly like:
      *
-     *     % printf '1\n2\n3\n' | jq -n 'def END: read(3;{}); until(eof(0))|read(0;{})|write(3;{})|empty'
+     *     % printf '0\n"foo"\n2\n' | jq -n 'def END: read(3;{}); until(eof(0))|read(0;{})|write(3;{})|empty'
+     *
+     * then make sure that we find '3' in the output (except that the
+     * output here is the output of jq_next() executing JQ_END, not
+     * anything in stdout).
      */
     rewind(in);
-    fclose(out);
     jq = jq_init();
     jq_handle_create_stdio(jq, 0, in, 0, 0);
     jq_handle_create_stdio(jq, 1, stderr, 0, 0);
@@ -317,6 +331,83 @@ static void jv_test() {
     jq_start(jq, jv_null(), JQ_END);
     res = jq_next(jq);
     assert(jv_get_kind(res) == JV_KIND_NUMBER && jv_number_value(res) == 2);
+    jv_free(res);
+    jq_teardown(&jq);
+
+    /*
+     * Test null I/O handles, using fopen.
+     *
+     * Roughly like:
+     *
+     *     % printf '0\n"foo"\n2\n' | jq --allow-write -n \
+     *          'def BEGIN: null|fopen({"mode":"w+"})|write(3;{});
+     *           read(3;{})|. as $null_handle|until(eof(0))|read(0;{})|write(3;{})|empty'
+     *
+     * then make sure that we find nothing in the output.
+     */
+    rewind(in);
+    jq = jq_init();
+    jq_handle_create_stdio(jq, 0, in, 0, 0);
+    jq_handle_create_stdio(jq, 1, stderr, 0, 0);
+    jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+    jq_handle_create_buffer(jq, 3);
+    jq_compile_args(jq,
+                    "def BEGIN: null|fopen({\"mode\":\"w+\"})|write(3;{}); "
+                    "read(3;{})|. as $null_handle|"
+                    "until(eof(0))|read(0;{})|write($null_handle;{})|empty",
+                    JQ_BEGIN_END, jv_array());
+    jq_start(jq, jv_null(), JQ_BEGIN);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_NUMBER && jv_number_value(res) == 4);
+    jq_start(jq, jv_null(), 0);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_INVALID);
+    jv_free(res);
+    jq_teardown(&jq);
+
+    /*
+     * Test stdio fopen.
+     */
+    rewind(in);
+    jq = jq_init();
+    jq_handle_create_stdio(jq, 0, in, 0, 0);
+    jq_handle_create_stdio(jq, 1, stderr, 0, 0);
+    jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+    jq_handle_create_buffer(jq, 3);
+    jq_compile_args(jq,
+                    "def BEGIN: fopen({\"mode\":\"w+\"})|write(3;{}); "
+                    "read(3;{})|until(eof(0))|read(0;{})|write(3;{})|empty",
+                    JQ_BEGIN_END, jv_array());
+    char fname_buf[2048];
+    jq_start(jq, jv_string(tmpnam(fname_buf)), JQ_BEGIN | JQ_OPEN_FILES | JQ_OPEN_WRITE);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_NUMBER && jv_number_value(res) == 4);
+    jq_start(jq, jv_null(), 0);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_INVALID);
+    jv_free(res);
+    jq_teardown(&jq);
+
+    /*
+     * Test stdio popen.
+     */
+    rewind(in);
+    jq = jq_init();
+    jq_handle_create_stdio(jq, 0, in, 0, 0);
+    jq_handle_create_stdio(jq, 1, stderr, 0, 0);
+    jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+    jq_handle_create_buffer(jq, 3);
+    jq_compile_args(jq,
+                    "def BEGIN: \"echo foo\"|popen({\"mode\":\"r\"})|write(3;{}); "
+                    "read(3;{})|read(0;{\"raw\":true})",
+                    JQ_BEGIN_END, jv_array());
+    jq_start(jq, jv_null(), JQ_BEGIN | JQ_EXEC);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_NUMBER && jv_number_value(res) == 4);
+    jq_start(jq, jv_null(), 0);
+    res = jq_next(jq);
+    assert(jv_get_kind(res) == JV_KIND_STRING && strcmp(jv_string_value(res), "foo"));
+    jv_free(res);
     jq_teardown(&jq);
   }
 }
