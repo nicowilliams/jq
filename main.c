@@ -100,6 +100,8 @@ static int process(jq_state *jq, jv value, int flags) {
         ret = 0;
       if (!(flags & JQ_BEGIN) && !(flags & JQ_END))
         jv_dump(result, dumpopts);
+      else
+        jv_free(result);
     }
     if (!(flags & JQ_BEGIN) && !(flags & JQ_END))
       printf("\n");
