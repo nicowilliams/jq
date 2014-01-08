@@ -982,12 +982,14 @@ static jv f_has(jq_state *jq, jv input, jv k) {
 }
 
 static jv f_BEGIN(jq_state *jq, jv input) {
+  jv_free(input);
   if (jq_flags(jq) & JQ_BEGIN)
     return jv_true();
   return jv_false();
 }
 
 static jv f_END(jq_state *jq, jv input) {
+  jv_free(input);
   if (jq_flags(jq) & JQ_END)
     return jv_true();
   return jv_false();
