@@ -893,7 +893,7 @@ static jv f_read(jq_state *jq, jv input, jv handle, jv flags) {
   struct jv_parser *p = NULL;
 
   if (!raw)
-    p = jv_parser_new(0); // JV_PARSE_EXPLODE_TOPLEVEL_ARRAY no supported here
+    p = jv_parser_new();
 
   if (raw && slurp)
     res = jv_string("");
