@@ -28,6 +28,27 @@ struct jv_parser {
   int stackpos;
   int stacklen;
   jv next;
+  jv path; // for online parsing
+
+  /*
+   * New plan for online parsing: we parse online separately (though
+   * with parsing of scalars as common code).  Online is online all the
+   * way down, not to some depth limit; consumers can deal with this be
+   * reducing below the limits where they care, using setpath().
+   *
+   * The next function will output an array of path and scalar value.
+   * Paths will be arrays of scalars.  Leaves that are empty arrays are
+   * denoted as a final -1 in the path.  Leaves that are empty objects
+   * are denoted as a finale null in the path.  End of top-level is
+   * denoted as empty path, no value.
+   *
+   * Do we need a new API?  We need to indicate when we're done parsing
+   * a top-level value, but that's easy: when the output of the next
+   * function is an empty array!
+   *
+   * So no new API, just a new parser flag.  The online parser will
+   * mostly consist of an online version of scan().
+   */
 
   jv_parser_flags flags;
   
@@ -52,6 +73,7 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
   p->stack = 0;
   p->stacklen = p->stackpos = 0;
   p->next = jv_invalid();
+  p->path = jv_null();
   p->tokenbuf = 0;
   p->tokenlen = p->tokenpos = 0;
   p->st = JV_PARSER_NORMAL;
