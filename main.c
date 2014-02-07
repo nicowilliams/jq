@@ -202,8 +202,8 @@ int main(int argc, char* argv[]) {
       options |= EXIT_STATUS;
     } else if (isoption(argv[i], 0, "args")) {
       options |= ARGS;
-    } else if (isoption(argv[i], 'I', "online-input")) {
-      parser_flags = JV_PARSE_EXPLODE_TOPLEVEL_ARRAY;
+    } else if (isoption(argv[i], 0, "online-input")) {
+      parser_flags = JV_PARSE_ONLINE;
     } else if (isoption(argv[i], 0, "arg")) {
       if (i >= argc - 2) {
         fprintf(stderr, "%s: --arg takes two parameters (e.g. -a varname value)\n", progname);

@@ -28,7 +28,10 @@ struct jv_parser {
   int stackpos;
   int stacklen;
   jv next;
-  jv path; // for online parsing
+  jv path;          // for online parsing
+  jv leaf;          // for online parsing
+  jv online_ret;    // For reuse; betting most of the time the caller
+                    // will not keep a reference
 
   /*
    * New plan for online parsing: we parse online separately (though
@@ -73,7 +76,13 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
   p->stack = 0;
   p->stacklen = p->stackpos = 0;
   p->next = jv_invalid();
-  p->path = jv_null();
+  if (flags & JV_PARSE_ONLINE) {
+    p->path = jv_array();
+    p->online_ret = jv_array();
+  } else {
+    p->path = jv_invalid();
+  }
+  p->leaf = jv_invalid();
   p->tokenbuf = 0;
   p->tokenlen = p->tokenpos = 0;
   p->st = JV_PARSER_NORMAL;
@@ -87,11 +96,17 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
 
 static void parser_free(struct jv_parser* p) {
   jv_free(p->next);
-  for (int i=0; i<p->stackpos; i++) 
-    jv_free(p->stack[i]);
-  jv_mem_free(p->stack);
-  jv_mem_free(p->tokenbuf);
   jvp_dtoa_context_free(&p->dtoa);
+  if (p->flags & JV_PARSE_ONLINE) {
+    jv_free(p->leaf);
+    jv_free(p->path);
+    jv_free(p->online_ret);
+  } else {
+    for (int i=0; i<p->stackpos; i++) 
+      jv_free(p->stack[i]);
+    jv_mem_free(p->stack);
+    jv_mem_free(p->tokenbuf);
+  }
 }
 
 static pfunc value(struct jv_parser* p, jv val) {
@@ -135,9 +150,6 @@ static pfunc token(struct jv_parser* p, char ch) {
     break;
 
   case ',':
-    if (p->stackpos == 1 && (p->flags & JV_PARSE_EXPLODE_TOPLEVEL_ARRAY) &&
-        jv_get_kind(p->stack[0]) == JV_KIND_ARRAY)
-      return 0;
     if (!jv_is_valid(p->next))
       return "Expected value before ','";
     if (p->stackpos == 0)
@@ -161,7 +173,7 @@ static pfunc token(struct jv_parser* p, char ch) {
     if (p->stackpos == 0 || jv_get_kind(p->stack[p->stackpos-1]) != JV_KIND_ARRAY)
       return "Unmatched ']'";
     if (jv_is_valid(p->next)) {
-      if (p->stackpos != 1 || !(p->flags & JV_PARSE_EXPLODE_TOPLEVEL_ARRAY)) {
+      if (p->stackpos != 1) {
         p->stack[p->stackpos-1] = jv_array_append(p->stack[p->stackpos-1], p->next);
         p->next = jv_invalid();
       }
@@ -171,12 +183,8 @@ static pfunc token(struct jv_parser* p, char ch) {
         return "Expected another array element";
       }
     }
-    if (p->stackpos == 1 && (p->flags & JV_PARSE_EXPLODE_TOPLEVEL_ARRAY)) {
-      jv_free(p->stack[--p->stackpos]);
-    } else {
-      jv_free(p->next);
-      p->next = p->stack[--p->stackpos];
-    }
+    jv_free(p->next);
+    p->next = p->stack[--p->stackpos];
     break;
 
   case '}':
@@ -349,9 +357,7 @@ static chclass classify(char c) {
 static const presult OK = "output produced";
 
 static int check_done(struct jv_parser* p, jv* out) {
-  if ((p->stackpos == 0 && jv_is_valid(p->next)) ||
-      (p->stackpos == 1 && (p->flags & JV_PARSE_EXPLODE_TOPLEVEL_ARRAY) &&
-       jv_get_kind(p->stack[0]) == JV_KIND_ARRAY && jv_is_valid(p->next))) {
+  if (p->stackpos == 0 && jv_is_valid(p->next)) {
     *out = p->next;
     p->next = jv_invalid();
     return 1;
@@ -444,7 +450,7 @@ void jv_parser_set_buf(struct jv_parser* p, const char* buf, int length, int is_
   p->curr_buf_is_partial = is_partial;
 }
 
-jv jv_parser_next(struct jv_parser* p) {
+static jv parser_next(struct jv_parser* p) {
   assert(p->curr_buf && "a buffer must be provided");
   if (p->bom_strip_position == 0xff) return jv_invalid_with_msg(jv_string("Malformed BOM"));
   jv value;
@@ -476,6 +482,223 @@ jv jv_parser_next(struct jv_parser* p) {
     p->next = jv_invalid();
     return value;
   }
+}
+
+static jv_kind path_kind_last(struct jv_parser* p) {
+  jv v = jv_array_get(jv_copy(p->path), jv_array_length(jv_copy(p->path)) - 1);
+  jv_kind k = jv_get_kind(v);
+  jv_free(v);
+  return k;
+}
+
+static int path_length(struct jv_parser* p) {
+  return jv_array_length(jv_copy(p->path));
+}
+
+static jv path_last(struct jv_parser* p) {
+  return jv_array_get(jv_copy(p->path), jv_array_length(jv_copy(p->path)) - 1);
+}
+
+static void path_set_last(struct jv_parser* p, jv val) {
+  p->path = jv_array_set(p->path, jv_array_length(jv_copy(p->path)) - 1, val);
+}
+
+static void path_push(struct jv_parser* p, jv val) {
+  p->path = jv_array_append(p->path, val);
+}
+
+static void path_pop(struct jv_parser* p) {
+  p->path = jv_array_slice(p->path, 0, jv_array_length(jv_copy(p->path)) - 1);
+}
+
+static pfunc token_online(struct jv_parser* p, char ch) {
+  jv_kind k;
+  switch (ch) {
+  case '[':
+    if (jv_is_valid(p->next)) return "Expected separator between values";
+    path_push(p, jv_number(-1));
+    break;
+
+  case '{':
+    if (jv_is_valid(p->next)) return "Expected separator between values";
+    path_push(p, jv_null());
+    break;
+
+  case ':':
+    if (!jv_is_valid(p->next)) 
+      return "Expected string key before ':'";
+    k = path_kind_last(p);
+    if (k != JV_KIND_NULL && k != JV_KIND_STRING)
+      return "':' not as part of an object";
+    if (jv_get_kind(p->next) != JV_KIND_STRING)
+      return "Object keys must be strings";
+    path_set_last(p, p->next);
+    p->next = jv_invalid();
+    break;
+
+  case ',':
+    if (!jv_is_valid(p->next))
+      return "Expected value before ','";
+    if (path_length(p) == 0)
+      return "',' not as part of an object or array";
+    k = path_kind_last(p);
+    assert(k == JV_KIND_NUMBER || k == JV_KIND_NULL || k == JV_KIND_STRING);
+    if (k == JV_KIND_NUMBER) {
+      p->leaf = p->next;
+      p->next = jv_invalid();
+    } else if (k == JV_KIND_NULL || k == JV_KIND_STRING) {
+      if (!jv_is_valid(p->next)) {
+        // this case hits on input like {"a", ...}
+        return "Objects must consist of key:value pairs";
+      }
+      p->leaf = p->next;
+      p->next = jv_invalid();
+    }
+    break;
+
+  case ']':
+    if (path_length(p) == 0)
+      return "Unmatched ']'";
+    k = path_kind_last(p);
+    if (k != JV_KIND_NUMBER)
+      return "Unmatched ']'";
+    jv last = path_last(p);
+    if (jv_number_value(last) == -1) {
+      // This is a leaf
+      assert(!jv_is_valid(p->next));
+      p->leaf = jv_array();
+    }
+    jv_free(last);
+    if (jv_is_valid(p->next)) {
+      p->leaf = p->next;
+      p->next = jv_invalid();
+    }
+    // XXX We don't keep enough state to check for [1,2,3,]
+    break;
+
+  case '}':
+    if (path_length(p) == 0)
+      return "Unmatched '}'";
+    k = path_kind_last(p);
+    if (k != JV_KIND_NULL || JV_KIND_STRING)
+      return "Unmatched '}'";
+    if (k == JV_KIND_NULL) {
+      assert(!jv_is_valid(p->next));
+      p->leaf = jv_object();
+      break;
+    }
+    if (!jv_is_valid(p->next))
+      return "Objects must consist of key:value pairs";
+    p->leaf = p->next;
+    p->next = jv_invalid();
+    // XXX We don't keep enough state to check for {"a":1,}
+    break;
+  }
+  return 0;
+}
+
+static int check_done_online(struct jv_parser* p, jv* out) {
+  int plen = path_length(p);
+  jv leaf;
+  if (plen == 0 && jv_is_valid(p->next)) {
+    assert(!jv_is_valid(p->leaf));
+    leaf = p->next;
+    p->next = jv_invalid();
+  } else if (jv_is_valid(p->leaf)) {
+    assert(plen > 0);
+    assert(!jv_is_valid(p->next));
+    leaf = p->leaf;
+  } else {
+    return 0;
+  }
+  jv ret = jv_array_slice(jv_copy(p->online_ret), 0, 0);
+  ret = jv_array_append(ret, jv_copy(p->path));
+  ret = jv_array_append(ret, leaf);
+  *out = ret;
+  p->leaf = jv_invalid();
+  return 1;
+}
+
+static pfunc scan_online(struct jv_parser* p, char ch, jv* out) {
+  p->column++;
+  if (ch == '\n') {
+    p->line++;
+    p->column = 0;
+  }
+  presult answer = 0;
+  if (p->st == JV_PARSER_NORMAL) {
+    chclass cls = classify(ch);
+    if (cls != LITERAL) {
+      TRY(check_literal(p));
+      if (check_done_online(p, out)) answer = OK;
+    }
+    switch (cls) {
+    case LITERAL:
+      tokenadd(p, ch);
+      break;
+    case WHITESPACE:
+      break;
+    case QUOTE:
+      p->st = JV_PARSER_STRING;
+      break;
+    case STRUCTURE:
+      TRY(token_online(p, ch));
+      break;
+    case INVALID:
+      return "Invalid character";
+    }
+    if (check_done_online(p, out)) answer = OK;
+  } else {
+    if (ch == '"' && p->st == JV_PARSER_STRING) {
+      TRY(found_string(p));
+      p->st = JV_PARSER_NORMAL;
+      if (check_done_online(p, out)) answer = OK;
+    } else {
+      tokenadd(p, ch);
+      if (ch == '\\' && p->st == JV_PARSER_STRING) {
+        p->st = JV_PARSER_STRING_ESCAPE;
+      } else {
+        p->st = JV_PARSER_STRING;
+      }
+    }
+  }
+  return answer;
+}
+
+static jv parser_next_online(struct jv_parser* p) {
+  assert(p->curr_buf && "a buffer must be provided");
+  if (p->bom_strip_position == 0xff) return jv_invalid_with_msg(jv_string("Malformed BOM"));
+  presult msg = 0;
+  jv value;
+  while (!msg && p->curr_buf_pos < p->curr_buf_length) {
+    char ch = p->curr_buf[p->curr_buf_pos++];
+    msg = scan_online(p, ch, &value);
+  }
+  if (msg == OK) {
+    return value;
+  } else if (msg) {
+    return jv_invalid_with_msg(jv_string_fmt("%s at line %d, column %d", msg, p->line, p->column));
+  } else if (p->curr_buf_is_partial) {
+    assert(p->curr_buf_pos == p->curr_buf_length);
+    // need another buffer
+    return jv_invalid();
+  } else {
+    assert(p->curr_buf_pos == p->curr_buf_length);
+    // at EOF
+    if (p->st != JV_PARSER_NORMAL) 
+      return jv_invalid_with_msg(jv_string("Unfinished string"));
+    if ((msg = check_literal(p)))
+      return jv_invalid_with_msg(jv_string(msg));
+    if (path_length(p) != 0)
+      return jv_invalid_with_msg(jv_string("Unfinished JSON term"));
+    return jv_invalid();
+  }
+}
+
+jv jv_parser_next(struct jv_parser* p) {
+  if (p->flags & JV_PARSE_ONLINE)
+    return parser_next_online(p);
+  return parser_next(p);
 }
 
 jv jv_parse_sized(const char* string, int length) {

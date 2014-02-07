@@ -139,7 +139,7 @@ void jv_nomem_handler(jv_nomem_handler_f, void *);
 jv jv_load_file(const char *, int);
 
 typedef enum {
-  JV_PARSE_EXPLODE_TOPLEVEL_ARRAY = 1
+  JV_PARSE_ONLINE = 1
 } jv_parser_flags;
 struct jv_parser;
 struct jv_parser* jv_parser_new(jv_parser_flags);
