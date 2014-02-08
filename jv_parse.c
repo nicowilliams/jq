@@ -30,8 +30,7 @@ struct jv_parser {
   jv next;
   jv path;          // for online parsing
   jv leaf;          // for online parsing
-  jv online_ret;    // For reuse; betting most of the time the caller
-                    // will not keep a reference
+  jv online_ret;    // for online parsing (the output)
 
   /*
    * New plan for online parsing: we parse online separately (though
@@ -78,7 +77,7 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
   p->next = jv_invalid();
   if (flags & JV_PARSE_ONLINE) {
     p->path = jv_array();
-    p->online_ret = jv_array();
+    p->online_ret = jv_invalid();
   } else {
     p->path = jv_invalid();
   }
@@ -511,6 +510,27 @@ static void path_pop(struct jv_parser* p) {
   p->path = jv_array_slice(p->path, 0, jv_array_length(jv_copy(p->path)) - 1);
 }
 
+static void make_out(struct jv_parser* p) {
+  int plen = path_length(p);
+  jv leaf;
+  // XXX Substitute empty array/object if path_last is -1 or null
+  if (plen == 0 && jv_is_valid(p->next)) {
+    assert(!jv_is_valid(p->leaf));
+    leaf = p->next;
+    p->next = jv_invalid();
+  } else if (jv_is_valid(p->leaf)) {
+    assert(plen > 0);
+    assert(!jv_is_valid(p->next));
+    leaf = p->leaf;
+  } else {
+    return;
+  }
+  p->online_ret = jv_array();
+  p->online_ret = jv_array_append(p->online_ret, jv_copy(p->path));
+  p->online_ret = jv_array_append(p->online_ret, leaf);
+  p->leaf = jv_invalid();
+}
+
 static pfunc token_online(struct jv_parser* p, char ch) {
   jv_kind k;
   switch (ch) {
@@ -546,6 +566,7 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (k == JV_KIND_NUMBER) {
       p->leaf = p->next;
       p->next = jv_invalid();
+      path_set_last(p, jv_number(jv_number_value(path_last(p)) + 1));
     } else if (k == JV_KIND_NULL || k == JV_KIND_STRING) {
       if (!jv_is_valid(p->next)) {
         // this case hits on input like {"a", ...}
@@ -554,6 +575,7 @@ static pfunc token_online(struct jv_parser* p, char ch) {
       p->leaf = p->next;
       p->next = jv_invalid();
     }
+    make_out(p);
     break;
 
   case ']':
@@ -567,12 +589,19 @@ static pfunc token_online(struct jv_parser* p, char ch) {
       // This is a leaf
       assert(!jv_is_valid(p->next));
       p->leaf = jv_array();
+      path_pop(p);
+      make_out(p);
+    } else {
+      if (jv_is_valid(p->next)) {
+        p->leaf = p->next;
+        p->next = jv_invalid();
+      }
+      path_set_last(p, jv_number(jv_number_value(last) + 1));
+      // Note: order reversed compared to -1 case above
+      make_out(p);
+      path_pop(p);
     }
     jv_free(last);
-    if (jv_is_valid(p->next)) {
-      p->leaf = p->next;
-      p->next = jv_invalid();
-    }
     // XXX We don't keep enough state to check for [1,2,3,]
     break;
 
@@ -585,38 +614,33 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (k == JV_KIND_NULL) {
       assert(!jv_is_valid(p->next));
       p->leaf = jv_object();
+      path_pop(p);
+      make_out(p);
       break;
+    } else {
+      if (!jv_is_valid(p->next))
+        return "Objects must consist of key:value pairs";
+      p->leaf = p->next;
+      p->next = jv_invalid();
+      // Note: order reversed compared to null case above
+      make_out(p);
+      path_pop(p);
+      // XXX We don't keep enough state to check for {"a":1,}
     }
-    if (!jv_is_valid(p->next))
-      return "Objects must consist of key:value pairs";
-    p->leaf = p->next;
-    p->next = jv_invalid();
-    // XXX We don't keep enough state to check for {"a":1,}
     break;
   }
   return 0;
 }
 
-static int check_done_online(struct jv_parser* p, jv* out) {
-  int plen = path_length(p);
-  jv leaf;
-  if (plen == 0 && jv_is_valid(p->next)) {
-    assert(!jv_is_valid(p->leaf));
-    leaf = p->next;
-    p->next = jv_invalid();
-  } else if (jv_is_valid(p->leaf)) {
-    assert(plen > 0);
-    assert(!jv_is_valid(p->next));
-    leaf = p->leaf;
-  } else {
-    return 0;
+static int check_done_online(struct jv_parser* p, jv *out) {
+  if (jv_is_valid(p->next) && jv_array_length(jv_copy(p->path)) == 0)
+    make_out(p);
+  if (jv_is_valid(p->online_ret)) {
+    *out = p->online_ret;
+    p->online_ret = jv_invalid();
+    return 1;
   }
-  jv ret = jv_array_slice(jv_copy(p->online_ret), 0, 0);
-  ret = jv_array_append(ret, jv_copy(p->path));
-  ret = jv_array_append(ret, leaf);
-  *out = ret;
-  p->leaf = jv_invalid();
-  return 1;
+  return 0;
 }
 
 static pfunc scan_online(struct jv_parser* p, char ch, jv* out) {
