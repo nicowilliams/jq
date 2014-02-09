@@ -513,6 +513,31 @@ static void path_pop(struct jv_parser* p) {
   p->path = jv_array_slice(p->path, 0, jv_array_length(jv_copy(p->path)) - 1);
 }
 
+#if 0
+static int path_leaf(struct jv_parser* p) {
+  if (jv_is_valid(p->next)) {
+    p->leaf = p->next;
+    p->next = jv_invalid();
+  }
+  if (jv_is_valid(p->leaf))
+    return 1;
+  jv last = path_last(p);
+  jv_kind k = jv_get_kind(last);
+  if (k == JV_KIND_NUMBER && jv_number_value(last) == -1) {
+    p->leaf = jv_array();
+    path_pop(p);
+    return 1;
+  }
+  if (k == JV_KIND_NULL) {
+    p->leaf = jv_object();
+    path_pop(p);
+    return 1;
+  }
+  assert(k == JV_KIND_NUMBER || k == JV_KIND_STRING || k == JV_KIND_FALSE);
+  return 0;
+}
+#endif
+
 static jv make_path(jv path, int plen) {
   if (plen == 0)
     return path;
@@ -569,7 +594,7 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (!jv_is_valid(p->next)) 
       return "Expected string key before ':'";
     k = path_kind_last(p);
-    if (k != JV_KIND_NULL && k != JV_KIND_STRING)
+    if (k != JV_KIND_NULL && k != JV_KIND_FALSE)
       return "':' not as part of an object";
     if (jv_get_kind(p->next) != JV_KIND_STRING)
       return "Object keys must be strings";
@@ -583,6 +608,8 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (path_length(p) == 0)
       return "',' not as part of an object or array";
     k = path_kind_last(p);
+    if (k == JV_KIND_FALSE)
+      return "Missing value before ','";
     assert(k == JV_KIND_NUMBER || k == JV_KIND_NULL || k == JV_KIND_STRING);
     if (k == JV_KIND_NUMBER) {
       p->leaf = p->next;
@@ -597,6 +624,8 @@ static pfunc token_online(struct jv_parser* p, char ch) {
       p->next = jv_invalid();
     }
     make_out(p);
+    if (k == JV_KIND_STRING)
+      path_set_last(p, jv_false());
     break;
 
   case ']':
@@ -606,53 +635,46 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (k != JV_KIND_NUMBER)
       return "Unmatched ']'";
     jv last = path_last(p);
-    if (jv_number_value(last) == -1) {
+    if (jv_number_value(last) == -1 && !jv_is_valid(p->next)) {
+      p->next = jv_array(); // Empty array as leaf
+      path_pop(p);
+    } else {
+      if (!jv_is_valid(p->next))
+        // Looks like [1,]
+        return "Expected value before ']'";
       p->leaf = p->next;
       p->next = jv_invalid();
-      if (!jv_is_valid(p->leaf)) {
-        p->leaf = jv_array(); // Empty array as leaf
-        path_pop(p);
-        make_out(p);
-      } else {
-        path_set_last(p, jv_number(0));
-        make_out(p);
-        path_pop(p);
-      }
-    } else {
-      if (jv_is_valid(p->next)) {
-        p->leaf = p->next;
-        p->next = jv_invalid();
-      }
       path_set_last(p, jv_number(jv_number_value(last) + 1));
-      // Note: order reversed compared to -1 case above
       make_out(p);
       path_pop(p);
     }
     jv_free(last);
-    // XXX We don't keep enough state to check for [1,2,3,]
     break;
 
   case '}':
     if (path_length(p) == 0)
       return "Unmatched '}'";
     k = path_kind_last(p);
+    if (k == JV_KIND_FALSE)
+      return "Expected value before '}'";
     if (k != JV_KIND_NULL && k != JV_KIND_STRING)
       return "Unmatched '}'";
     if (k == JV_KIND_NULL) {
       assert(!jv_is_valid(p->next));
-      p->leaf = jv_object();
+      p->next = jv_object(); // Empty object
       path_pop(p);
-      make_out(p);
       break;
-    } else {
+    } else if (k == JV_KIND_STRING) {
       if (!jv_is_valid(p->next))
         return "Objects must consist of key:value pairs";
       p->leaf = p->next;
       p->next = jv_invalid();
-      // Note: order reversed compared to null case above
       make_out(p);
       path_pop(p);
-      // XXX We don't keep enough state to check for {"a":1,}
+    } else {
+      assert(k == JV_KIND_FALSE);
+      path_pop(p);
+      // Noting to output here
     }
     break;
   }
