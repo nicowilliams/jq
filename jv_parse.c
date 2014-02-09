@@ -96,6 +96,7 @@ static void parser_init(struct jv_parser* p, jv_parser_flags flags) {
 static void parser_free(struct jv_parser* p) {
   jv_free(p->next);
   jvp_dtoa_context_free(&p->dtoa);
+  jv_mem_free(p->tokenbuf);
   if (p->flags & JV_PARSE_ONLINE) {
     jv_free(p->leaf);
     jv_free(p->path);
@@ -104,7 +105,6 @@ static void parser_free(struct jv_parser* p) {
     for (int i=0; i<p->stackpos; i++) 
       jv_free(p->stack[i]);
     jv_mem_free(p->stack);
-    jv_mem_free(p->tokenbuf);
   }
 }
 
@@ -484,6 +484,9 @@ static jv parser_next(struct jv_parser* p) {
 }
 
 static jv_kind path_kind_last(struct jv_parser* p) {
+  int len = jv_array_length(jv_copy(p->path));
+  if (len == 0)
+    return JV_KIND_INVALID;
   jv v = jv_array_get(jv_copy(p->path), jv_array_length(jv_copy(p->path)) - 1);
   jv_kind k = jv_get_kind(v);
   jv_free(v);
@@ -510,25 +513,41 @@ static void path_pop(struct jv_parser* p) {
   p->path = jv_array_slice(p->path, 0, jv_array_length(jv_copy(p->path)) - 1);
 }
 
+static jv make_path(jv path, int plen) {
+  if (plen == 0)
+    return path;
+  jv v = jv_array_get(jv_copy(path), plen - 1);
+  if (jv_equal(jv_number(-1), jv_copy(v)) || jv_equal(jv_null(), v)) {
+    jv_free(path);
+    return jv_array_slice(jv_copy(path), 0, plen -1);
+  }
+  return path;
+}
+
 static void make_out(struct jv_parser* p) {
   int plen = path_length(p);
   jv leaf;
-  // XXX Substitute empty array/object if path_last is -1 or null
-  if (plen == 0 && jv_is_valid(p->next)) {
+  if (jv_is_valid(p->next)) {
     assert(!jv_is_valid(p->leaf));
     leaf = p->next;
     p->next = jv_invalid();
   } else if (jv_is_valid(p->leaf)) {
-    assert(plen > 0);
     assert(!jv_is_valid(p->next));
     leaf = p->leaf;
   } else {
+    assert("Internal error");
     return;
   }
   p->online_ret = jv_array();
-  p->online_ret = jv_array_append(p->online_ret, jv_copy(p->path));
+  p->online_ret = jv_array_append(p->online_ret, make_path(jv_copy(p->path), plen));
   p->online_ret = jv_array_append(p->online_ret, leaf);
   p->leaf = jv_invalid();
+}
+
+static void path_note_element(struct jv_parser* p) {
+  jv v = path_last(p);
+  if (jv_get_kind(v) == JV_KIND_NUMBER)
+    path_set_last(p, jv_number(jv_number_value(path_last(p)) + 1));
 }
 
 static pfunc token_online(struct jv_parser* p, char ch) {
@@ -536,11 +555,13 @@ static pfunc token_online(struct jv_parser* p, char ch) {
   switch (ch) {
   case '[':
     if (jv_is_valid(p->next)) return "Expected separator between values";
+    path_note_element(p);
     path_push(p, jv_number(-1));
     break;
 
   case '{':
     if (jv_is_valid(p->next)) return "Expected separator between values";
+    path_note_element(p);
     path_push(p, jv_null());
     break;
 
@@ -586,11 +607,17 @@ static pfunc token_online(struct jv_parser* p, char ch) {
       return "Unmatched ']'";
     jv last = path_last(p);
     if (jv_number_value(last) == -1) {
-      // This is a leaf
-      assert(!jv_is_valid(p->next));
-      p->leaf = jv_array();
-      path_pop(p);
-      make_out(p);
+      p->leaf = p->next;
+      p->next = jv_invalid();
+      if (!jv_is_valid(p->leaf)) {
+        p->leaf = jv_array(); // Empty array as leaf
+        path_pop(p);
+        make_out(p);
+      } else {
+        path_set_last(p, jv_number(0));
+        make_out(p);
+        path_pop(p);
+      }
     } else {
       if (jv_is_valid(p->next)) {
         p->leaf = p->next;
@@ -609,7 +636,7 @@ static pfunc token_online(struct jv_parser* p, char ch) {
     if (path_length(p) == 0)
       return "Unmatched '}'";
     k = path_kind_last(p);
-    if (k != JV_KIND_NULL || JV_KIND_STRING)
+    if (k != JV_KIND_NULL && k != JV_KIND_STRING)
       return "Unmatched '}'";
     if (k == JV_KIND_NULL) {
       assert(!jv_is_valid(p->next));
