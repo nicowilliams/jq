@@ -282,6 +282,7 @@ jv stack_pop(jq_state *jq) {
   if (!stack_pop_will_free(&jq->stk, jq->stk_top)) {
     val = jv_copy(val);
   }
+  assert(jq->stk_top < 0);
   jq->stk_top = stack_pop_block(&jq->stk, jq->stk_top, sizeof(jv));
   assert(jv_is_valid(val));
   return val;
@@ -775,6 +776,26 @@ jv jq_next(jq_state *jq) {
         path_append(jq, key);
         stack_push(jq, value);
       }
+      break;
+    }
+
+    case REPEAT:
+    case ON_BACKTRACK(REPEAT): {
+      uint16_t level = *pc++;
+      uint16_t v = *pc++;
+      int first = opcode == REPEAT;
+      
+      if (!first) {
+        jv cond = *frame_local_var(jq, v, level);
+        if (jv_is_valid(cond) && jv_get_kind(cond) != JV_KIND_TRUE)
+          goto do_backtrack; // no further iteration
+        jv_free(cond);
+        *frame_local_var(jq, v, level) = jv_false();
+      }
+
+      // Make a backtrack point and idicate whether this is the first iteration
+      stack_save(jq, pc - 3, stack_get_pos(jq));
+      stack_push(jq, first ? jv_true() : jv_false());
       break;
     }
 

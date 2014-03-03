@@ -335,6 +335,33 @@ block gen_reduce(const char* varname, block source, block init, block body) {
                gen_op_bound(LOADVN, res_var));
 }
 
+block gen_yield(block extract, block init, block update) {
+  block cond_var = gen_op_var_fresh(STOREV, "cond");
+  block state_var = gen_op_var_fresh(STOREV, "state");
+  // XXX Now add a state var into which to STOREV the state, duh
+
+  block init_or_update =
+      BLOCK(gen_condbranch(BLOCK(init),
+                           BLOCK(gen_op_bound(LOADV, state_var),
+                                 update)),
+            gen_op_simple(DUP),
+            BLOCK(gen_const(jv_true()),
+                  gen_op_bound(STOREV, cond_var)),
+            BLOCK(gen_op_simple(DUP),
+                  gen_op_bound(STOREV, state_var))
+            );
+
+  block preamble = BLOCK(gen_op_simple(DUP),
+                         state_var,
+                         gen_const(jv_false()),
+                         cond_var);
+
+  return BLOCK(preamble,
+               gen_op_bound(REPEAT, cond_var),
+               init_or_update,
+               extract);
+}
+
 block gen_definedor(block a, block b) {
   // var found := false
   block found_var = gen_op_var_fresh(STOREV, "found");

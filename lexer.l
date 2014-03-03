@@ -51,6 +51,7 @@ struct lexer_param;
 "or" { return OR; }
 "end" { return END; }
 "reduce" { return REDUCE; }
+"yield" { return YIELD; }
 "//" { return DEFINEDOR; }
 "|=" { return SETPIPE; }
 "+=" { return SETPLUS; }

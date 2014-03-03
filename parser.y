@@ -63,6 +63,7 @@ struct lexer_param;
 %token ELSE "else"
 %token ELSE_IF "elif"
 %token REDUCE "reduce"
+%token YIELD "yield"
 %token END "end"
 %token AND "and"
 %token OR "or"
@@ -233,6 +234,10 @@ Term "as" '$' IDENT '|' Exp {
 "reduce" Term "as" '$' IDENT '(' Exp ';' Exp ')' {
   $$ = gen_reduce(jv_string_value($5), $2, $7, $9);
   jv_free($5);
+} |
+
+"yield" Exp '(' Exp ';' Exp ')' {
+  $$ = gen_yield($2, $4, $6);
 } |
 
 "if" Exp "then" Exp ElseBody {
