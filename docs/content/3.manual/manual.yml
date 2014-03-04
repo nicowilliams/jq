@@ -1656,6 +1656,17 @@ sections:
               0 | (3 as $item | . + $item) | 
                   (2 as $item | . + $item) |
                   (1 as $item | . + $item)
+          
+          The form of the `reduce` syntax is:
+
+              reduce <input> as $<var> (<inital>; <update>)
+
+          where the input expression generates values to be reduced,
+          the initializer specifies an initial value for the reduction's
+          state, and the updater computes a new reduction for each
+          input. The variable will be bound to each input, and the
+          current reduction state will be the `.` for the update
+          expression.
 
         examples:
           - program: 'reduce .[] as $item (0; . + $item)'
