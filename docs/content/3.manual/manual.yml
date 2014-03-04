@@ -676,6 +676,14 @@ sections:
           
           `empty` returns no results. None at all. Not even `null`.
 
+          To be more specific, `empty` backtracks. Some expressions can
+          produce multiple results (not unlike Python generators). A
+          filter with an `empty` produces no value, instead causing the
+          nearest preceding generator to be resumed. The `select`
+          builtin is implemented in terms of `empty`:
+
+              def select(f): if f then . else empty end;
+
           It's useful on occasion. You'll know if you need it :)
 
         examples:
