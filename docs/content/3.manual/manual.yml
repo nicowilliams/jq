@@ -808,7 +808,30 @@ sections:
           - program: '[range(2;4)]'
             input: 'null'
             output: ['[2,3]']
-            
+
+      - title: `yield <extract> (<init>; <update>)`
+        body: |
+
+          The `yield` syntax allows for arbitrary generators.  There are
+          three expressions involved: an initializer, an updater, and an
+          extractor.  The initializer is invoked once with yield's input
+          to produce a state value, then the extractor and updater are
+          invoked to extract outputs and new states (respectively).
+          For example:
+
+              yield . (1; . + 1|select(. < 5))
+
+          Produces the numbers 1 through 4, just like `range(1;5)`
+          would.
+
+        examples:
+          - program: 'yield . (1; . + 1|select(. < 5))'
+            input: 'null'
+            output: ['1', '2', '3', '4']
+          - program: 'yield (range(0;.)) (1; . + 1|select(. < 5))'
+            input: 'null'
+            output: ['0', '0', '1', '0', '1', '2', '0', '1', '2', '3']
+
       - title: `floor`
         body: |
 
