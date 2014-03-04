@@ -1672,7 +1672,20 @@ sections:
           - program: 'reduce .[] as $item (0; . + $item)'
             input: '[10,2,5,3]'
             output: ['20']
+
+      - title: Generators
+        body: |
       
+          To recap, there are several generator expressions and builtins
+          in jq: `.[]`, `range(start; end)`, `(this, that)` (the comma
+          operator), `//`, and `yield`. A jq program can be a generator,
+          and is resumed as many times per-input as needed to exhaust
+          the generators making up the program. When a generator in a
+          pipeline is exhausted it backtracks to resume the nearest
+          preceding suspended generator. The `empty` syntax is used to
+          force a backtrack. It is simple to implement depth-first
+          search backtracking algorithms in jq.
+
 
   - title: Assignment
     body: |
