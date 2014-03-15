@@ -68,7 +68,7 @@ static jv f_plus(jq_state *jq, jv input, jv a, jv b) {
 }
 
 #define LIBM_DD(name) \
-static jv f_ ## name(jv input) { \
+static jv f_ ## name(jq_state *jq, jv input) { \
   if (jv_get_kind(input) != JV_KIND_NUMBER) { \
     return type_error(input, "number required"); \
   } \
