@@ -139,6 +139,7 @@ void jv_nomem_handler(jv_nomem_handler_f, void *);
 
 jv jv_load_file(const char *, int);
 
+enum { JV_PARSE_RECOVER = 1 };
 struct jv_parser;
 struct jv_parser* jv_parser_new(int);
 void jv_parser_set_buf(struct jv_parser*, const char*, int, int);

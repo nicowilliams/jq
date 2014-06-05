@@ -33,6 +33,8 @@ struct jv_parser {
   int tokenpos;
   int tokenlen;
 
+  int flags;
+
   int line, column;
   
   struct dtoa_context dtoa;
@@ -45,7 +47,8 @@ struct jv_parser {
 };
 
 
-static void parser_init(struct jv_parser* p) {
+static void parser_init(struct jv_parser* p, int flags) {
+  p->flags = flags;
   p->stack = 0;
   p->stacklen = p->stackpos = 0;
   p->next = jv_invalid();
@@ -58,6 +61,20 @@ static void parser_init(struct jv_parser* p) {
   p->line = 1;
   p->column = 0;
   jvp_dtoa_context_init(&p->dtoa);
+}
+
+static void parser_reset(struct jv_parser* p) {
+  jv_free(p->next);
+  for (int i=0; i<p->stackpos; i++) 
+    jv_free(p->stack[i]);
+  jv_mem_free(p->stack);
+  jv_mem_free(p->tokenbuf);
+  p->stack = 0;
+  p->stacklen = p->stackpos = 0;
+  p->next = jv_invalid();
+  p->tokenbuf = 0;
+  p->tokenlen = p->tokenpos = 0;
+  p->st = JV_PARSER_NORMAL;
 }
 
 static void parser_free(struct jv_parser* p) {
@@ -372,7 +389,7 @@ static pfunc scan(struct jv_parser* p, char ch, jv* out) {
 
 struct jv_parser* jv_parser_new(int flags) {
   struct jv_parser* p = jv_mem_alloc(sizeof(struct jv_parser));
-  parser_init(p);
+  parser_init(p, flags);
   return p;
 }
 
@@ -415,6 +432,24 @@ jv jv_parser_next(struct jv_parser* p) {
   presult msg = 0;
   while (!msg && p->curr_buf_pos < p->curr_buf_length) {
     char ch = p->curr_buf[p->curr_buf_pos++];
+
+    /*
+     * JSON text sequences require that an ASCII RS precede every text
+     * so that the parser can recover from incompletely-written JSON
+     * texts due to, e.g., write(2) failures in log-file writers.  Such
+     * writes can happen for a variety of reasons.  RS is the separator
+     * that allows us to detect and recover from such incomplete
+     * entries.
+     */
+    if (ch == '\036') {
+      if (p->stackpos != 0 && !(p->flags & JV_PARSE_RECOVER))
+        return jv_invalid_with_msg(jv_string_fmt("JSON text truncated at line %d, column %d", p->line, p->column));
+      if (p->stackpos == 0)
+        assert(!jv_is_valid(p->next));
+      // pretend RS wasn't there
+      parser_reset(p);
+      continue;
+    }
     msg = scan(p, ch, &value);
   }
   if (msg == OK) {
@@ -444,7 +479,7 @@ jv jv_parser_next(struct jv_parser* p) {
 
 jv jv_parse_sized(const char* string, int length) {
   struct jv_parser parser;
-  parser_init(&parser);
+  parser_init(&parser, 0);
   jv_parser_set_buf(&parser, string, length, 0);
   jv value = jv_parser_next(&parser);
   if (jv_is_valid(value)) {
