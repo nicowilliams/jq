@@ -1,0 +1,6 @@
+[submodule "libtomfloat"]
+	path = libtomfloat
+	url = https://github.com/libtom/libtomfloat
+[submodule "libtommath"]
+	path = libtommath
+	url = https://github.com/libtom/libtommath

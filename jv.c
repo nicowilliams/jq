@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <limits.h>
 
+#include "libtomfloat/tomfloat.h"
+
 #include "jv_alloc.h"
 #include "jv.h"
 #include "jv_unicode.h"
@@ -128,6 +130,43 @@ static void jvp_invalid_free(jv x) {
  * Numbers
  */
 
+typedef struct {
+  jv_refcnt refcnt;
+  mp_float f;
+} jvp_bigfloat;
+
+static jvp_bigfloat* jvp_bigfloat_ptr(jv f) {
+  assert(jv_get_kind(f) == JV_KIND_ARRAY);
+  return (jvp_bigfloat*)f.u.ptr;
+}
+
+static jvp_bigfloat* jvp_bigfloat_alloc(void) {
+  jvp_bigfloat* f = jv_mem_alloc(sizeof(fvp_array));
+  f->refcnt.count = 1;
+  f->length = 0;
+  f->alloc_length = size;
+  return f;
+}
+
+jv jv_number_big(const char *s) {
+  jvp_bigfloat *f = jvp_bigfloat_alloc();
+
+  // XXX Think about fallback from non-MP_MEM errors?
+  if (mpf_init(&f, 10) != MP_OKAY)
+    return jv_invalid_with_msg(jv_string("Failed to initialize big number"));
+
+  // XXX Implement mpf_from_string()! (maybe just look for a ., count
+  // powers of ten to the dot, remove the dot, use the mp_int parser,
+  // then multiply or divide by the appropriate power of ten)
+  if (mpf_from_string(&f->f, s, 10) != MP_OKAY) {
+    mpf_clear(&f->f);
+    return jv_invalid_with_msg(jv_string("Failed to parse big number"));
+  }
+
+  // kind number && r.size > 0 -> bigfloat
+  return {JV_KIND_NUMBER, 0, 0, sizeof(f->f), {&f->refcnt}};
+}
+
 jv jv_number(double x) {
   jv j;
   j.kind_flags = JV_KIND_NUMBER;
@@ -138,15 +177,28 @@ jv jv_number(double x) {
 
 double jv_number_value(jv j) {
   assert(jv_get_kind(j) == JV_KIND_NUMBER);
+  if (j.size) {
+    jvp_bigfloat *f = jvp_bigfloat_ptr(j);
+    // XXX Implement mpf_to_double()!
+    return mpf_to_double(&f->f);
+  }
   return j.u.number;
 }
 
-int jv_is_integer(jv j){
-  if(jv_get_kind(j) != JV_KIND_NUMBER){
+jv jv_number_string(jv j) {
+  assert(jv_get_kind(j) == JV_KIND_NUMBER);
+  // XXX Implement.  Will have to implement mpf_to_string(), probably by
+  // printing the underlying mp_int mantissa then adding zeros and dot
+  // as needed per-the exponent.
+  ...
+}
+
+int jv_is_integer(jv j) {
+  if(jv_get_kind(j) != JV_KIND_NUMBER) {
     return 0;
   }
   double x = jv_number_value(j);
-  if(x != x || x > INT_MAX || x < INT_MIN){
+  if(x != x || x > INT_MAX || x < INT_MIN) {
     return 0;
   }
 
