@@ -130,25 +130,48 @@ static void jvp_invalid_free(jv x) {
  * Numbers
  */
 
+// BIGFLOAT TODO:
+//
+//  - from/to jv string functions
+//  - arithmetic ops and libm-style function C wrappers, to avoid the
+//    need for interfaces by which to extract mp_floats out of jv
+//    numbers
+//  - defer parsing number strings (but validate them) to ops
+
 typedef struct {
   jv_refcnt refcnt;
   mp_float f;
 } jvp_bigfloat;
 
 static jvp_bigfloat* jvp_bigfloat_ptr(jv f) {
-  assert(jv_get_kind(f) == JV_KIND_ARRAY);
+  assert(jv_get_kind(f) == JV_KIND_NUMBER);
   return (jvp_bigfloat*)f.u.ptr;
 }
 
 static jvp_bigfloat* jvp_bigfloat_alloc(void) {
-  jvp_bigfloat* f = jv_mem_alloc(sizeof(fvp_array));
+  jvp_bigfloat* f = jv_mem_alloc(sizeof(jvp_bigfloat));
   f->refcnt.count = 1;
   f->length = 0;
   f->alloc_length = size;
   return f;
 }
 
-jv jv_number_big(const char *s) {
+// Internal interface that does an mpf_copy() to copy and/or places the
+// real one (not to be modified!) into *actual.
+// XXX libtomfloat could use an mp_const_float so we could get some
+// compile-time static type safety as to *actual.
+int _jv_number_internal_rep(jv j, mp_float *copy, mp_float **actual) {
+  assert(jv_get_kind(f) == JV_KIND_NUMBER);
+  if (!f.size)
+    return 0;
+  jvp_bigfloat *f = jvp_bigfloat_ptr(j);
+  if (actual)
+    *actual = &f->f;
+  if (copy && mpf_copyf(f->f, copy) != MP_OKAY)
+    return 0;
+}
+
+jv jv_number_parse(const char *s) {
   jvp_bigfloat *f = jvp_bigfloat_alloc();
 
   // XXX Think about fallback from non-MP_MEM errors?
@@ -185,6 +208,7 @@ double jv_number_value(jv j) {
   return j.u.number;
 }
 
+// Return a string jv representing the given number
 jv jv_number_string(jv j) {
   assert(jv_get_kind(j) == JV_KIND_NUMBER);
   // XXX Implement.  Will have to implement mpf_to_string(), probably by
