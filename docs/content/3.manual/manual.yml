@@ -1173,6 +1173,22 @@ sections:
             input: '["foobar", "barfoo"]'
             output: ['[false, true]']
 
+      - title: "`sub(re; sub)`, `gsub(re; sub)`"
+        body: |
+
+          `sub(re; sub)` replaces with `sub` the first match of the
+          given regexp `re` in its input.  `gsub(re; sub)` replaces all
+          matches.
+
+      - title: "`scan(re)`, `resplit(re)`"
+        body: |
+
+          `scan(re)` outputs the substrings of its input that match the
+          given regexp `re`.
+
+          `resplit(re)` splits the input into substrings separated by
+          substrings that match the given regexp `re`.
+
       - title: "`ltrimstr(str)`"
         body: |
 

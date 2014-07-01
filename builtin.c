@@ -974,7 +974,8 @@ static const char* const jq_builtins[] = {
   "def flatten: reduce .[] as $i ([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end);",
   "def flatten(x): x as $x | reduce .[] as $i ([]; if $i | type == \"array\" and $x > 0 then . + ($i | flatten($x-1)) else . + [$i] end);",
   "def range(x): x as $x | range(0;$x);",
-  // regular expressions:
+  "def take(a; n): n as $n | a as $a | if $a|length < $n then $a else $a[0:$n], take($a[$n:];$n) end;",
+  "def take(n): take(.;n);",
   "def match(re; mode): _match_impl(re; mode; false)|.[];",
   "def match(val): (val|type) as $vt | if $vt == \"string\" then match(val; null)"
    "  elif $vt == \"array\" and (val | length) > 1 then match(val[0]; val[1])"
@@ -1011,6 +1012,19 @@ static const char* const jq_builtins[] = {
   "def first: .[0];",
   "def last: .[-1];",
   "def nth(n): .[n];",
+  "def sub(re; s): . as $s|[match(re)]|.[0]|. as $r|$s|.[0:$r.offset]+s+.[$r.offset+$r.length:-1];",
+  "def gsub(re; s):"
+  "  def stredit(edits; s):"
+  "    if edits|length == 0 then . else"
+  "      (. as $s|(edits|length -1) as $l|"
+  "      (edits[$l]) as $edit|"
+  "      .[0:$edit.offset]+s+.[$edit.offset+$edit.length:] | stredit(edits[0:$l]; s) ) end;"
+  "  [match(re;\"g\")] as $edits|stredit($edits; s);",
+  "def _matches(re): match(re;\"g\")|[.offset,.length];",
+  "def scan(re): . as $s|_matches(re)|$s[.[0]:.[0]+.[1]];",
+  // This builtin outputs an array because the old C-coded version of
+  // split did so too.
+  "def resplit(re): . as $s | [[0] + [_matches(re) | .[0],.[0]+.[1]] + [$s|length] | take(2) | select(length == 2) | $s[.[0]:.[1]]];",
 };
 #undef LIBM_DD
 

@@ -1216,6 +1216,128 @@ jq \'[\.[]|endswith("foo")]\'
 .
 .IP "" 0
 .
+.SS "match(val), match(regex; modifiers)"
+The filter \fBmatch(val)\fR performs PCRE regex matching on its input\. \fBval\fR can be either a string or an array\. If it is an array, the first element is the regex specifier and the optional second element is the modifier flags\. The accepted modifier flags are:
+.
+.IP "\(bu" 4
+\fBg\fR \- Global search (find all matches, not just the first)
+.
+.IP "\(bu" 4
+\fBi\fR \- Case insensitive search
+.
+.IP "\(bu" 4
+\fBx\fR \- Extended regex format (ignore whitespaces)
+.
+.IP "\(bu" 4
+\fBm\fR \- Multi line mode (\'\.\' will match newlines)
+.
+.IP "\(bu" 4
+\fBs\fR \- Single line mode (\'^\' \-> \'\eA\', \'$\' \-> \'\eZ\')
+.
+.IP "\(bu" 4
+\fBp\fR \- Both s and m modes are enabled
+.
+.IP "\(bu" 4
+\fBl\fR \- Find longest possible matches
+.
+.IP "\(bu" 4
+\fBn\fR \- Ignore empty matches
+.
+.IP "" 0
+.
+.P
+The filter outputs an object for each match it finds\. Matches have the following fields:
+.
+.IP "\(bu" 4
+\fBoffset\fR \- offset in UTF\-8 codepoints from the beginning of the input
+.
+.IP "\(bu" 4
+\fBlength\fR \- length in UTF\-8 codepoints of the match
+.
+.IP "\(bu" 4
+\fBstring\fR \- the string that it matched
+.
+.IP "\(bu" 4
+\fBcaptures\fR \- an array of objects representing capturing groups\.
+.
+.IP "" 0
+.
+.P
+Capturing group objects have the following fields:
+.
+.IP "\(bu" 4
+\fBoffset\fR \- offset in UTF\-8 codepoints from the beginning of the input
+.
+.IP "\(bu" 4
+\fBlength\fR \- length in UTF\-8 codepoints of this capturing group
+.
+.IP "\(bu" 4
+\fBstring\fR \- the string that was captured
+.
+.IP "\(bu" 4
+\fBname\fR \- the name of the capturing group (or \fBnull\fR if it was unnamed)
+.
+.IP "" 0
+.
+.P
+Capturing groups that did not match anything return an offset of \-1
+.
+.IP "" 4
+.
+.nf
+
+jq \'match("(abc)+"; "g")\'
+   "abc abc"
+=> {"offset": 0, "length": 3, "string": "abc", "captures": [{"offset": 0, "length": 3, "string": "abc", "name": null}]}, {"offset": 4, "length": 3, "string": "abc", "captures": [{"offset": 4, "length": 3, "string": "abc", "name": null}]}
+
+jq \'match("foo")\'
+   "foo bar foo"
+=> {"offset": 0, "length": 3, "string": "foo", "captures": []}
+
+jq \'match(["foo", "ig"])\'
+   "foo bar FOO"
+=> {"offset": 0, "length": 3, "string": "foo", "captures": []}, {"offset": 8, "length": 3, "string": "FOO", "captures": []}
+
+jq \'match("foo (?<bar123>bar)? foo"; "ig")\'
+   "foo bar foo foo  foo"
+=> {"offset": 0, "length": 11, "string": "foo bar foo", "captures": [{"offset": 4, "length": 3, "string": "bar", "name": "bar123"}]}, {"offset": 12, "length": 8, "string": "foo  foo", "captures": [{"offset": \-1, "length": 0, "string": null, "name": "bar123"}]}
+.
+.fi
+.
+.IP "" 0
+.
+.SS "test(val), test(regex), test(regex; modifiers)"
+Like \fBmatch\fR, but does not return match objects, only \fBtrue\fR or \fBfalse\fR for whether or not the regex matches the input\.
+.
+.IP "" 4
+.
+.nf
+
+jq \'test("foo")\'
+   "foo"
+=> true
+
+jq \'test("foo"; "i")\'
+   "Foo"
+=> true
+
+jq \'test("foo")\'
+   "bar"
+=> false
+.
+.fi
+.
+.IP "" 0
+.
+.SS "sub(re; sub), gsub(re; sub)"
+\fBsub(re; sub)\fR replaces with \fBsub\fR the first match of the given regexp \fBre\fR in its input\. \fBgsub(re; sub)\fR replaces all matches\.
+.
+.SS "scan(re), split2(re)"
+\fBscan(re)\fR outputs the substrings of its input that match the given regexp \fBre\fR\.
+.
+.P
+\fBsplit2(re)\fR outputs the substrings of its input that don\'t match the given regexp \fBre\fR\. (Compare to \fBsplit(sep)\fR, which outputs an array of substrings that don\'t exactly match \fBsep\fR\.)
+.
 .SS "ltrimstr(str)"
 Outputs its input with the given prefix string removed, if it starts with it\.
 .

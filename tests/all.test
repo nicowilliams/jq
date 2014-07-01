@@ -820,6 +820,22 @@ capture("(?<a>[a-z]+)-(?<n>[0-9]+)")
 "xyzzy-14"
 {"a":"xyzzy","n":"14"}
 
+# jq-coded utilities built on match:
+#
+# The second element in these tests' inputs tests the case where the
+# first and last match begin and end the input string.
+[.[]|[[sub(", ";":")], [gsub(", ";":")], [scan(", ")], split(", ")]]
+["a,b, c, d, e,f",", a,b, c, d, e,f, "]
+[[["a,b:c, d, e,"],["a,b:c:d:e,f"],[", ",", ",", "],["a,b","c","d","e,f"]],[[":a,b, c, d, e,f,"],[":a,b:c:d:e,f:"],[", ",", ",", ",", ",", "],["","a,b","c","d","e,f",""]]]
+
+[.[]|[[sub(", *";":")], [gsub(", *";":")], [scan(", *")], split(", *")]]
+["a,b, c, d, e,f",", a,b,  c,   d,    e,f,    "]
+[[["a:b, c, d, e,"],["a:b:c:d:e:f"],[",",", ",", ",", ",","],["a","b","c","d","e","f"]],[[":a,b,  c,   d,    e,f,   "],[":a:b:c:d:e:f:"],[", ",",",",  ",",   ",",    ",",",",    "],["","a","b","c","d","e","f",""]]]
+
+[.[]|[[sub(", +";":")], [gsub(", +";":")], [scan(", +")], split(", +")]]
+["a,b, c, d, e,f",", a,b,  c,   d,    e,f,    "]
+[[["a,b:c, d, e,"],["a,b:c:d:e,f"],[", ",", ",", "],["a,b","c","d","e,f"]],[[":a,b,  c,   d,    e,f,   "],[":a,b:c:d:e,f:"],[", ",",  ",",   ",",    ",",    "],["","a,b","c","d","e,f",""]]]
+
 [.[]|ltrimstr("foo")]
 ["fo", "foo", "barfoo", "foobar", "afoo"]
 ["fo","","barfoo","bar","afoo"]
