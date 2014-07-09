@@ -9,6 +9,7 @@
 #include "jq.h"
 #include "jv_alloc.h"
 #include "version.h"
+#include "util.h"
 
 int jq_testsuite(int argc, char* argv[]);
 
@@ -220,23 +221,13 @@ int main(int argc, char* argv[]) {
         continue;
       }
       if (argv[i][1] == 'L') {
-        if (strlen(argv[i]) > 2) { // -lname
-          if (argv[i][2] == '~') {
-            lib_search_paths = jv_array_append(lib_search_paths,
-                jv_string_fmt("%s/%s",getenv("HOME"),argv[i]+3));
-          } else {
+        if (argv[i][2] != 0) { // -lname (faster check than strlen)
             lib_search_paths = jv_array_append(lib_search_paths, jv_string(argv[i]+2));
-          }
         } else if (i >= argc - 1) {
           fprintf(stderr, "-L takes a parameter: (e.g. -L /search/path or -L/search/path)\n");
           die();
         } else {
-          if (argv[i+1][0] == '~') {
-            lib_search_paths = jv_array_append(lib_search_paths,
-                jv_string_fmt("%s/%s",getenv("HOME"),argv[i+1]+1));
-          } else {
-            lib_search_paths = jv_array_append(lib_search_paths, jv_string(argv[i+1]));
-          }
+          lib_search_paths = jv_array_append(lib_search_paths, jv_string(argv[i+1]));
           i++;
         }
         continue;

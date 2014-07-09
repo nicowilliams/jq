@@ -15,7 +15,6 @@ void jq_get_error_cb(jq_state *, jq_err_cb *, void **);
 void jq_set_nomem_handler(jq_state *, void (*)(void *), void *);
 int jq_compile(jq_state *, const char* str);
 int jq_compile_args(jq_state *, const char* str, jv args);
-int jq_compile_libs(jq_state *, const char* str, jv lib_paths, jv libs);
 int jq_compile_libs_args(jq_state *, const char* str, jv lib_paths, jv libs, jv args);
 void jq_dump_disassembly(jq_state *, int);
 void jq_start(jq_state *, jv value, int flags);
