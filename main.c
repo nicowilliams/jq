@@ -369,6 +369,18 @@ int main(int argc, char* argv[]) {
         ret = 0;
         goto out;
       }
+      if (isoption(argv[i],  0,  "allow-open", &short_opts)) {
+        jq_flags |= JQ_OPEN_FILES;
+        if (!short_opts) continue;
+      }
+      if (isoption(argv[i],  0,  "allow-write", &short_opts)) {
+        jq_flags |= JQ_OPEN_FILES | JQ_OPEN_WRITE;
+        if (!short_opts) continue;
+      }
+      if (isoption(argv[i],  0,  "allow-exec", &short_opts)) {
+        jq_flags |= JQ_EXEC;
+        if (!short_opts) continue;
+      }
 
       // check for unknown options... if this argument was a short option
       if (strlen(argv[i]) != short_opts + 1) {
@@ -478,6 +490,11 @@ int main(int argc, char* argv[]) {
     jq_dump_disassembly(jq, 0);
     printf("\n");
   }
+
+  jq_handle_create_stdio(jq, 0, stdin, 0, 0);
+  jq_handle_create_stdio(jq, 1, stdout, 0, 0);
+  jq_handle_create_stdio(jq, 2, stderr, 0, 0);
+  jq_handle_create_buffer(jq, 3);
 
   if (options & PROVIDE_NULL) {
     ret = process(jq, jv_null(), jq_flags);
