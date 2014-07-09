@@ -494,7 +494,6 @@ int main(int argc, char* argv[]) {
   jq_handle_create_stdio(jq, 0, stdin, 0, 0);
   jq_handle_create_stdio(jq, 1, stdout, 0, 0);
   jq_handle_create_stdio(jq, 2, stderr, 0, 0);
-  jq_handle_create_buffer(jq, 3);
 
   if (options & PROVIDE_NULL) {
     ret = process(jq, jv_null(), jq_flags);

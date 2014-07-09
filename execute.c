@@ -104,21 +104,6 @@ int jq_handle_create_null(jq_state *jq, int desired_handle) {
   return jq_handle_create(jq, desired_handle, "null", &jq, NULL); // Any "handle" address will do
 }
 
-static void destroy_buffer_handle(void *data) {
-  jv_free(*(jv *)data);
-  jv_mem_free(data);
-}
-
-int jq_handle_create_buffer(jq_state *jq, int desired_handle) {
-  jv *v = jv_mem_alloc(sizeof(*v));
-  *v = jv_null();
-
-  int hdl = jq_handle_create(jq, desired_handle, "buffer", v, destroy_buffer_handle);
-  if (hdl < 0)
-    jv_free(*v);
-  return hdl;
-}
-
 int jq_handle_create_stdio(jq_state *jq, int desired_handle,
                            FILE *f, int close_it, int is_pipe) {
   struct jq_stdio_handle *h = jv_mem_alloc(sizeof(*h));
