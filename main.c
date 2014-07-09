@@ -192,6 +192,8 @@ int main(int argc, char* argv[]) {
   int jq_flags = 0;
   size_t short_opts = 0;
   jv program_arguments = jv_array();
+  jv required_libs = jv_array();
+  jv lib_search_paths = jv_array();
   for (int i=1; i<argc; i++, short_opts = 0) {
     if (further_args_are_files) {
       input_filenames[ninput_files++] = argv[i];
@@ -205,6 +207,41 @@ int main(int argc, char* argv[]) {
         program = argv[i];
       }
     } else {
+      if (argv[i][1] == 'l') {
+        if (strlen(argv[i]) > 2) { // -lname
+          required_libs = jv_array_append(required_libs, jv_string(argv[i]+2));
+        } else if (i >= argc - 1) {
+          fprintf(stderr, "-l takes a parameter: (e.g. -l name or -lname)\n");
+          die();
+        } else {
+          required_libs = jv_array_append(required_libs, jv_string(argv[i+1]));
+          i++;
+        }
+        continue;
+      }
+      if (argv[i][1] == 'L') {
+        if (strlen(argv[i]) > 2) { // -lname
+          if (argv[i][2] == '~') {
+            lib_search_paths = jv_array_append(lib_search_paths,
+                jv_string_fmt("%s/%s",getenv("HOME"),argv[i]+3));
+          } else {
+            lib_search_paths = jv_array_append(lib_search_paths, jv_string(argv[i]+2));
+          }
+        } else if (i >= argc - 1) {
+          fprintf(stderr, "-L takes a parameter: (e.g. -L /search/path or -L/search/path)\n");
+          die();
+        } else {
+          if (argv[i+1][0] == '~') {
+            lib_search_paths = jv_array_append(lib_search_paths,
+                jv_string_fmt("%s/%s",getenv("HOME"),argv[i+1]+1));
+          } else {
+            lib_search_paths = jv_array_append(lib_search_paths, jv_string(argv[i+1]));
+          }
+          i++;
+        }
+        continue;
+      }
+
       if (isoption(argv[i], 's', "slurp", &short_opts)) {
         options |= SLURP;
         if (!short_opts) continue;
@@ -309,6 +346,7 @@ int main(int argc, char* argv[]) {
         ret = 0;
         goto out;
       }
+
       // check for unknown options... if this argument was a short option
       if (strlen(argv[i]) != short_opts + 1) {
         fprintf(stderr, "%s: Unknown option %s\n", progname, argv[i]);
@@ -345,10 +383,12 @@ int main(int argc, char* argv[]) {
       ret = 2;
       goto out;
     }
-    compiled = jq_compile_args(jq, jv_string_value(data), program_arguments);
+    compiled = jq_compile_libs_args(jq, jv_string_value(data), lib_search_paths,
+                                    required_libs, program_arguments);
     jv_free(data);
   } else {
-    compiled = jq_compile_args(jq, program, program_arguments);
+    compiled = jq_compile_libs_args(jq, program, lib_search_paths, 
+                                    required_libs, program_arguments);
   }
   if (!compiled){
     ret = 3;
