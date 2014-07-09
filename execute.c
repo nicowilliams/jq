@@ -1020,7 +1020,7 @@ int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, j
       jv libpath = find_lib(lib_paths, lib);
       if (!jv_is_valid(libpath)) {
         jv emsg = jv_invalid_get_msg(libpath);
-        fprintf(stderr, "1%s\n",jv_string_value(emsg));
+        fprintf(stderr, "%s\n",jv_string_value(emsg));
         jv_free(emsg);
         block_free(program);
         goto compile_end; // Enjoy your raptors.
@@ -1029,7 +1029,7 @@ int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, j
       jv_free(libpath);
       if (!jv_is_valid(ret)) {
         jv emsg = jv_invalid_get_msg(ret);
-        fprintf(stderr, "2%s\n",jv_string_value(emsg));
+        fprintf(stderr, "%s\n",jv_string_value(emsg));
         jv_free(emsg);
         block_free(program);
         goto compile_end;
