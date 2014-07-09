@@ -16,6 +16,7 @@
 #include "jq.h"
 #include "parser.h"
 #include "builtin.h"
+#include "util.h"
 
 struct jq_state {
   void (*nomem_handler)(void *);
@@ -894,23 +895,6 @@ static struct bytecode *optimize(struct bytecode *bc) {
   return optimize_code(bc);
 }
 
-// This isn't -technically- canonicalization, since I don't
-// think it's necessary.  But that's the best name I had.
-static jv canonicalize_path(jv path) {
-  assert(jv_get_kind(path) == JV_KIND_STRING);
-  const char *pstr = jv_string_value(path);
-  jv ret = path;
-  if (pstr[0] == '~' && pstr[1] == '/') {
-    char *home = getenv("HOME");
-    if (!home) {
-      ret = jv_invalid_with_msg(jv_string_fmt("$HOME not set.  Could not expand %s.",pstr));
-    } else {
-      ret = jv_string_fmt("%s/%s",home,pstr+2);
-    }
-    jv_free(path);
-  }
-  return ret;
-}
 
 static jv build_lib_search_chain(jv lib_paths) {
   assert(jv_get_kind(lib_paths) == JV_KIND_ARRAY);
@@ -920,16 +904,18 @@ static jv build_lib_search_chain(jv lib_paths) {
   lib_paths = jv_array_concat(lib_paths, jv_string_split(jv_string(penv),jv_string(":")));
   jv out_paths = jv_array();
   jv_array_foreach(lib_paths, i, path) {
-    if (jv_string_length_codepoints(jv_copy(path)) > 0)  {
-      path = canonicalize_path(path);
-      if (jv_is_valid(path)) {
-        out_paths = jv_array_append(out_paths, path);
-      } else {
-        jv emsg = jv_invalid_get_msg(path);
-        fprintf(stderr, "%s - skipping\n", jv_string_value(emsg));
-        jv_free(emsg);
-      }
+    if (jv_string_length_bytes(jv_copy(path)) == 0)  {
+      jv_free(path);
+      continue;
     }
+    path = canonicalize_path(path);
+    if (jv_is_valid(path)) {
+      out_paths = jv_array_append(out_paths, path);
+    } else {
+      jv emsg = jv_invalid_get_msg(path);
+      fprintf(stderr, "%s - skipping\n", jv_string_value(emsg));
+      jv_free(emsg);
+    } 
   }
   jv_free(lib_paths);
   return out_paths;
@@ -940,12 +926,14 @@ static jv find_lib(jv lib_search_paths, jv lib_name) {
   assert(jv_get_kind(lib_name) == JV_KIND_STRING);
 
   // Check for explicit paths
+  // Since all of the methods of specifying an explicit path contain a '/',
+  // ("~/some/path", "/some/path", "some/path", "./some/path"), it suffices
+  // to simply check for the existence of '/', especially since it must not
+  // exist in filenames.
   const char *path = jv_string_value(lib_name);
-  if (path[0] == '/'
-      || (path[0] == '~' && path[1] == '/')
-      || (path[0] == '.' && path[1] == '/')
-      || strstr(path,"/") != NULL) {
-    return canonicalize_path(lib_name);
+  for (const char* p2 = path; *p2; p2++) {
+    if (*p2 == '/')
+      return canonicalize_path(lib_name);
   }
 
   struct stat st;

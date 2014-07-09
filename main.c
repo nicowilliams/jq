@@ -9,7 +9,6 @@
 #include "jq.h"
 #include "jv_alloc.h"
 #include "version.h"
-#include "util.h"
 
 int jq_testsuite(int argc, char* argv[]);
 
