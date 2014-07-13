@@ -901,8 +901,10 @@ static int flag_is_set(jv o, const char *s) {
 }
 
 static jv get_option(jv o, const char *s, jv def) {
-  if (jv_get_kind(o) != JV_KIND_OBJECT)
-    return jv_null();
+  if (jv_get_kind(o) != JV_KIND_OBJECT) {
+    jv_free(o);
+    return def;
+  }
   jv k = jv_string(s);
   jv v = jv_object_get(jv_copy(o), k);
   if (jv_get_kind(v) == JV_KIND_NULL || jv_get_kind(v) == JV_KIND_INVALID) {
@@ -945,7 +947,7 @@ static jv f_fopen(jq_state *jq, jv input, jv filename, jv options) {
   int hdl = -1;
   jv err = jv_null();
   jq_runtime_flags flags = jq_flags(jq);
-  jv desired_handle = get_option(options, "handle", jv_number(-1));
+  jv desired_handle = get_option(jv_copy(options), "handle", jv_number(-1));
 
   if (jv_get_kind(desired_handle) == JV_KIND_NUMBER)
     hdl = jv_number_value(desired_handle);
@@ -959,7 +961,7 @@ static jv f_fopen(jq_state *jq, jv input, jv filename, jv options) {
       err = jv_invalid_with_msg(jv_string("file opens not allowed"));
       goto out;
     }
-    jv fopen_mode = get_option(options, "mode", jv_string("r"));
+    jv fopen_mode = get_option(jv_copy(options), "mode", jv_string("r"));
     if (jv_get_kind(fopen_mode) != JV_KIND_STRING) {
       err = type_error(fopen_mode, "not a file open mode");
       goto out;
@@ -1002,8 +1004,8 @@ static jv f_popen(jq_state *jq, jv input, jv cmdline, jv options) {
   int hdl = -1;
   jv err = jv_null();
   jq_runtime_flags flags = jq_flags(jq);
-  jv popen_type = get_option(options, "mode", jv_string("r"));
-  jv desired_handle = get_option(options, "handle", jv_number(-1));
+  jv popen_type = get_option(jv_copy(options), "mode", jv_string("r"));
+  jv desired_handle = get_option(jv_copy(options), "handle", jv_number(-1));
 
   jv_free(input);
 
@@ -1054,7 +1056,6 @@ static jv f_write(jq_state *jq, jv input, jv handle, jv flags) {
   int raw = 0;
   int newline = 1;
   int do_fflush = 0;
-  jv *v;
   const char *type;
 
   if (jv_get_kind(handle) != JV_KIND_NUMBER) {
@@ -1063,24 +1064,28 @@ static jv f_write(jq_state *jq, jv input, jv handle, jv flags) {
   }
   hdl = jv_number_value(handle);
   if (jv_number_value(handle) != (double)hdl) {
+    jv_free(input);
+    jv_free(handle);
     jv_free(flags);
     return type_error(handle, "not a handle (must be integer)");
   }
+  jv_free(handle);
   if (hdl < 0) {
+    jv_free(input);
     jv_free(flags);
     return type_error(handle, "not a valid handle (must be non-negative)");
   }
-  jv_free(handle);
 
   jq_handle_get(jq, hdl, &type, &raw_handle, NULL);
-  if (strcmp(type, "FILE") != 0)
-    jv_free(flags);
 
-  if (strcmp(type, "null") == 0)
+  if (strcmp(type, "null") == 0) {
+    jv_free(flags);
     return input; // "/dev/null"
+  }
 
   if (strcmp(type, "FILE") != 0) {
     jv_free(input);
+    jv_free(flags);
     jv err = jv_invalid_with_msg(jv_string_fmt("%d is not a valid file handle", hdl));
     return err;
   }
