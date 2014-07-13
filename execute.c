@@ -908,13 +908,14 @@ static jv build_lib_search_chain(jv lib_paths) {
       jv_free(path);
       continue;
     }
-    path = canonicalize_path(path);
+    path = expand_path(path);
     if (jv_is_valid(path)) {
       out_paths = jv_array_append(out_paths, path);
     } else {
-      jv emsg = jv_invalid_get_msg(path);
-      fprintf(stderr, "%s - skipping\n", jv_string_value(emsg));
-      jv_free(emsg);
+      jv_free(path);
+      //jv emsg = jv_invalid_get_msg(path);
+      //fprintf(stderr, "jq: warning: skipping library path %s\n", jv_string_value(emsg));
+      //jv_free(emsg);
     } 
   }
   jv_free(lib_paths);
@@ -925,23 +926,46 @@ static jv find_lib(jv lib_search_paths, jv lib_name) {
   assert(jv_get_kind(lib_search_paths) == JV_KIND_ARRAY);
   assert(jv_get_kind(lib_name) == JV_KIND_STRING);
 
+#ifdef WIN32
+  char sep = '\\';
+#else
+  char sep = '/';
+#endif
+
   // Check for explicit paths
   // Since all of the methods of specifying an explicit path contain a '/',
   // ("~/some/path", "/some/path", "some/path", "./some/path"), it suffices
   // to simply check for the existence of '/', especially since it must not
   // exist in filenames.
   const char *path = jv_string_value(lib_name);
+
+#ifdef WIN32
+  if (path[0] && path[1] == ':' &&
+      ((path[0] >= 'a' && path[0] <= 'z') ||
+       (path[0] >= 'A' && path[0] <= 'Z')))
+    return expand_path(lib_name); // absolute path
+  if (path[0] == '\\' && path[1] == '\\')
+    return expand_path(lib_name); // UNC, absolute path
+#endif
+
   for (const char* p2 = path; *p2; p2++) {
+    if (*p2 == ':')
+      return jv_invalid_with_msg(jv_string("Library URIs not yet supported"));
     if (*p2 == '/')
-      return canonicalize_path(lib_name);
+      return expand_path(lib_name);
+#ifdef WIN32
+    if (*p2 == sep)
+      return expand_path(lib_name);
+#endif
   }
 
   struct stat st;
   int ret;
 
-  jv lib_filename = jv_string_fmt("/%s.jq",jv_string_value(lib_name));
+  jv lib_filename = jv_string_fmt("%s.jq", jv_string_value(lib_name));
   jv_array_foreach(lib_search_paths, i, spath) {
-    jv testpath = jv_string_fmt("%s/%s",jv_string_value(spath),jv_string_value(lib_filename));
+    jv testpath = jv_string_fmt("%s%c%s",
+                                jv_string_value(spath), sep, jv_string_value(lib_filename));
     jv_free(spath);
     ret = stat(jv_string_value(testpath),&st);
     if (ret == 0) {
@@ -962,22 +986,19 @@ static jv compile_bind_lib(jq_state *jq, block* bb, const char* lib) {
   struct locfile src;
   block funcs;
   jv data = jv_load_file(lib, 1);
-  if (jv_is_valid(data)) {
-    locfile_init(&src, jq, jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
-    nerrors = jq_parse_library(&src, &funcs);
-    if (nerrors == 0) {
-      *bb = block_bind_referenced(funcs, *bb, OP_IS_CALL_PSEUDO);
-      locfile_free(&src);
-    } else {
-      locfile_free(&src);
-      jv_free(data);
-      return jv_invalid_with_msg(jv_string_fmt("Failed to parse lib %s.",lib));
-    }
-  } else {
+  if (!jv_is_valid(data))
     return data;
-  }
+
+  locfile_init(&src, jq, jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
+  nerrors = jq_parse_library(&src, &funcs);
+  if (nerrors == 0)
+    *bb = block_bind_referenced(funcs, *bb, OP_IS_CALL_PSEUDO);
+
+  locfile_free(&src);
   jv_free(data);
-  return jv_true(); // Don't actually care.  The point is this is not invalid and doesn't malloc.
+  if (nerrors)
+    return jv_invalid_with_msg(jv_string_fmt("Failed to parse library %s.",lib));
+  return jv_true();
 }
 
 int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, jv args) {
@@ -994,54 +1015,61 @@ int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, j
     jq->bc = 0;
   }
   int nerrors = jq_parse(&locations, &program);
-  if (nerrors == 0) {
-    jv_array_foreach(args, i, arg) {
-      jv name = jv_object_get(jv_copy(arg), jv_string("name"));
-      jv value = jv_object_get(arg, jv_string("value"));
-      program = gen_var_binding(gen_const(value), jv_string_value(name), program);
-      jv_free(name);
-    }
-
-    lib_paths = build_lib_search_chain(lib_paths);
-
-    jv_array_foreach(libs, i, lib) {
-      jv libpath = find_lib(lib_paths, lib);
-      if (!jv_is_valid(libpath)) {
-        jv emsg = jv_invalid_get_msg(libpath);
-        fprintf(stderr, "%s\n",jv_string_value(emsg));
-        jv_free(emsg);
-        block_free(program);
-        goto compile_end; // Enjoy your raptors.
-      }
-      jv ret = compile_bind_lib(jq, &program, jv_string_value(libpath));
-      jv_free(libpath);
-      if (!jv_is_valid(ret)) {
-        jv emsg = jv_invalid_get_msg(ret);
-        fprintf(stderr, "%s\n",jv_string_value(emsg));
-        jv_free(emsg);
-        block_free(program);
-        goto compile_end;
-      }
-    }
-
-    nerrors = builtins_bind(jq, &program);
-    if (nerrors == 0) {
-      nerrors = block_compile(program, &locations, &jq->bc);
-    }
-  }
   if (nerrors) {
     jv s = jv_string_fmt("%d compile %s", nerrors,
                          nerrors > 1 ? "errors" : "error");
     if (jq->err_cb != NULL)
       jq->err_cb(jq->err_cb_data, s);
     else if (!jv_is_valid(s))
-      fprintf(stderr, "Error formatting jq compilation errors: %s\n", strerror(errno));
+      fprintf(stderr, "jq: error: formatting jq compilation errors: %s\n", strerror(errno));
     else
       fprintf(stderr, "%s\n", jv_string_value(s));
     jv_free(s);
+    goto compile_end;
   }
-  if (jq->bc)
-    jq->bc = optimize(jq->bc);
+
+  jv_array_foreach(args, i, arg) {
+    jv name = jv_object_get(jv_copy(arg), jv_string("name"));
+    jv value = jv_object_get(arg, jv_string("value"));
+    program = gen_var_binding(gen_const(value), jv_string_value(name), program);
+    jv_free(name);
+  }
+
+  lib_paths = build_lib_search_chain(lib_paths);
+  jv_array_foreach(libs, i, lib) {
+    jv libpath = find_lib(lib_paths, lib);
+    if (!jv_is_valid(libpath)) {
+      jv emsg = jv_invalid_get_msg(libpath);
+      fprintf(stderr, "jq: error: %s\n",jv_string_value(emsg));
+      jv_free(emsg);
+      block_free(program);
+      goto compile_end;
+    }
+    jv ret = compile_bind_lib(jq, &program, jv_string_value(libpath));
+    jv_free(libpath);
+    if (!jv_is_valid(ret)) {
+      jv emsg = jv_invalid_get_msg(ret);
+      fprintf(stderr, "jq: error: %s\n", jv_string_value(emsg));
+      jv_free(emsg);
+      block_free(program);
+      goto compile_end;
+    }
+  }
+
+  nerrors = builtins_bind(jq, &program);
+  if (nerrors) {
+    fprintf(stderr, "jq: error: binding builtins failed\n");
+    goto compile_end;
+  }
+  nerrors = block_compile(program, &locations, &jq->bc);
+  if (nerrors) {
+    fprintf(stderr, "jq: error: final compilation failed\n");
+    goto compile_end;
+  }
+
+  assert(jq->bc);
+  jq->bc = optimize(jq->bc);
+
 compile_end: // Avoid duplication of free() code, because that's where leaks come from.
   jv_free(lib_paths);
   jv_free(libs);
