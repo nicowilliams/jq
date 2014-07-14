@@ -61,6 +61,7 @@ struct lexer_param;
 %token THEN "then"
 %token ELSE "else"
 %token ELSE_IF "elif"
+%token IMPORT "import"
 %token REDUCE "reduce"
 %token FOREACH "foreach"
 %token END "end"
@@ -102,7 +103,7 @@ struct lexer_param;
 %precedence "catch"
 
 
-%type <blk> Exp Term MkDict MkDictPair ExpD ElseBody QQString FuncDef FuncDefs String
+%type <blk> Exp Term MkDict MkDictPair ExpD ElseBody QQString FuncDef FuncDefs String Import Imports
 %{
 #include "lexer.h"
 struct lexer_param {
@@ -213,6 +214,11 @@ TopLevel:
 Exp {
   *answer = BLOCK(gen_op_simple(TOP), $1);
 } |
+Imports Exp {
+  // XXX We assume TOP comes first in some places, but that might not be
+  // important.  See jq_parse().
+  *answer = BLOCK(gen_op_simple(TOP), $1, $2);
+} |
 FuncDefs {
   *answer = $1;
 } 
@@ -223,6 +229,40 @@ FuncDefs:
 } |
 FuncDef FuncDefs {
   $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
+} |
+Imports FuncDef FuncDefs {
+  $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
+}
+
+Imports:
+/* empty */ {
+  $$ = gen_noop();
+} |
+Import Imports {
+  $$ = block_join($1, $2);
+}
+
+// XXX Should probably create a JvString type just for this...
+Import:
+"import" IDENT "as" IDENT "search" QQSTRING_START QQSTRING_TEXT QQSTRING_END ';' {
+  $$ = gen_import(jv_string_value($2), jv_string_value($4), jv_string_value($7));
+  jv_free($2);
+  jv_free($4);
+  jv_free($7);
+} |
+"import" IDENT "search" QQSTRING_START QQSTRING_TEXT QQSTRING_END ';' {
+  $$ = gen_import(jv_string_value($2), NULL, jv_string_value($5));
+  jv_free($2);
+  jv_free($5);
+} |
+"import" IDENT "as" IDENT ';' {
+  $$ = gen_import(jv_string_value($2), jv_string_value($4), NULL);
+  jv_free($2);
+  jv_free($4);
+} |
+"import" IDENT ';' {
+  $$ = gen_import(jv_string_value($2), NULL, NULL);
+  jv_free($2);
 }
 
 Exp:
@@ -693,6 +733,30 @@ int jq_parse(struct locfile* locations, block* answer) {
     block_free(*answer);
     *answer = gen_noop();
   }
+  // FIXME: Here is where could check for imports in the *answer, and if
+  // we find them we could load the library, fix up its symbols (note:
+  // they'll be self-bound already when we get here, so no need to worry
+  // about that), and block_bind() (if *answer is a library) or
+  // block_bind_referenced() (if *answer is a program) the library to
+  // the *answer.
+  //
+  // We can tell which type of thing *answer is by checking if it starts
+  // with / has a TOP opcode.
+  //
+  // What to do about circularity?  Since we probably will modify the
+  // symbols of the loaded libraries (in the `import foo as bar` case)
+  // we might want to make the keys be "LIB-NAME::AS-NAME".  It's OK, if
+  // sub-optimal, to load a library twice: there's no global jq state.
+  //
+  // The end result, besides being bound, should not have an DEPENDS
+  // opcode blocks left!
+  //
+  // BTW, note that ideally we'd split the result of a parse that has a
+  // TOP into two pieces: the "library" containing any and all defs, and
+  // the program, then we'd block_bind_referenced() the library to the
+  // program -- things are already bound, but we should drop from the
+  // result any unreferenced defs, which is effectively what
+  // block_bind_referenced() does.
   return errors;
 }
 
