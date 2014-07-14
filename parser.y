@@ -211,9 +211,6 @@ static block gen_update(block object, block val, int optype) {
 
 %%
 TopLevel:
-Exp {
-  *answer = BLOCK(gen_op_simple(TOP), $1);
-} |
 Imports Exp {
   // XXX We assume TOP comes first in some places, but that might not be
   // important.  See jq_parse().
@@ -231,11 +228,11 @@ FuncDef FuncDefs {
   $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
 } |
 Imports FuncDef FuncDefs {
-  $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
+  $$ = block_join($1, block_bind($2, $3, OP_IS_CALL_PSEUDO));
 }
 
 Imports:
-/* empty */ {
+%empty /* empty */ {
   $$ = gen_noop();
 } |
 Import Imports {
