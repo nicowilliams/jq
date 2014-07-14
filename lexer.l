@@ -52,6 +52,8 @@ struct lexer_param;
 "end" { return END; }
 "reduce" { return REDUCE; }
 "foreach" { return FOREACH; }
+"import" { return IMPORT; }
+"search" { return SEARCH; }
 "//" { return DEFINEDOR; }
 "try" { return TRY; }
 "catch" { return CATCH; }

@@ -57,11 +57,12 @@ struct lexer_param;
 %token DEFINEDOR "//"
 %token AS "as"
 %token DEF "def"
+%token IMPORT "import"
+%token SEARCH "search"
 %token IF "if"
 %token THEN "then"
 %token ELSE "else"
 %token ELSE_IF "elif"
-%token IMPORT "import"
 %token REDUCE "reduce"
 %token FOREACH "foreach"
 %token END "end"
@@ -216,8 +217,8 @@ Imports Exp {
   // important.  See jq_parse().
   *answer = BLOCK(gen_op_simple(TOP), $1, $2);
 } |
-FuncDefs {
-  *answer = $1;
+Imports FuncDefs {
+  *answer = block_join($1, $2);
 } 
 
 FuncDefs:
@@ -226,9 +227,6 @@ FuncDefs:
 } |
 FuncDef FuncDefs {
   $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
-} |
-Imports FuncDef FuncDefs {
-  $$ = block_join($1, block_bind($2, $3, OP_IS_CALL_PSEUDO));
 }
 
 Imports:
@@ -238,6 +236,7 @@ Imports:
 Import Imports {
   $$ = block_join($1, $2);
 }
+
 
 // XXX Should probably create a JvString type just for this...
 Import:
@@ -261,6 +260,7 @@ Import:
   $$ = gen_import(jv_string_value($2), NULL, NULL);
   jv_free($2);
 }
+
 
 Exp:
 FuncDef Exp %prec ';' {
