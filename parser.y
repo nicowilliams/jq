@@ -241,24 +241,16 @@ Import Imports {
 // XXX Should probably create a JvString type just for this...
 Import:
 "import" IDENT "as" IDENT "search" QQSTRING_START QQSTRING_TEXT QQSTRING_END ';' {
-  $$ = gen_import(jv_string_value($2), jv_string_value($4), jv_string_value($7));
-  jv_free($2);
-  jv_free($4);
-  jv_free($7);
+  $$ = BLOCK(gen_op_simple(DEPS), gen_const($2), gen_const($4), gen_const($7));
 } |
 "import" IDENT "search" QQSTRING_START QQSTRING_TEXT QQSTRING_END ';' {
-  $$ = gen_import(jv_string_value($2), NULL, jv_string_value($5));
-  jv_free($2);
-  jv_free($5);
+  $$ = BLOCK(gen_op_simple(DEPS), gen_const($2), gen_const(jv_null()), gen_const($5));
 } |
 "import" IDENT "as" IDENT ';' {
-  $$ = gen_import(jv_string_value($2), jv_string_value($4), NULL);
-  jv_free($2);
-  jv_free($4);
+  $$ = BLOCK(gen_op_simple(DEPS), gen_const($2), gen_const($4), gen_const(jv_null()));
 } |
 "import" IDENT ';' {
-  $$ = gen_import(jv_string_value($2), NULL, NULL);
-  jv_free($2);
+  $$ = BLOCK(gen_op_simple(DEPS), gen_const($2), gen_const(jv_null()), gen_const(jv_null()));
 }
 
 

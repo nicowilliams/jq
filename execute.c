@@ -896,111 +896,6 @@ static struct bytecode *optimize(struct bytecode *bc) {
 }
 
 
-static jv build_lib_search_chain(jv lib_paths) {
-  assert(jv_get_kind(lib_paths) == JV_KIND_ARRAY);
-  char *penv = getenv("JQ_LIBRARY_PATH");
-  if (!penv) penv = "";
-
-  lib_paths = jv_array_concat(lib_paths, jv_string_split(jv_string(penv),jv_string(":")));
-  jv out_paths = jv_array();
-  jv_array_foreach(lib_paths, i, path) {
-    if (jv_string_length_bytes(jv_copy(path)) == 0)  {
-      jv_free(path);
-      continue;
-    }
-    path = expand_path(path);
-    if (jv_is_valid(path)) {
-      out_paths = jv_array_append(out_paths, path);
-    } else {
-      jv_free(path);
-      //jv emsg = jv_invalid_get_msg(path);
-      //fprintf(stderr, "jq: warning: skipping library path %s\n", jv_string_value(emsg));
-      //jv_free(emsg);
-    } 
-  }
-  jv_free(lib_paths);
-  return out_paths;
-}
-
-static jv find_lib(jv lib_search_paths, jv lib_name) {
-  assert(jv_get_kind(lib_search_paths) == JV_KIND_ARRAY);
-  assert(jv_get_kind(lib_name) == JV_KIND_STRING);
-
-#ifdef WIN32
-  char sep = '\\';
-#else
-  char sep = '/';
-#endif
-
-  // Check for explicit paths
-  // Since all of the methods of specifying an explicit path contain a '/',
-  // ("~/some/path", "/some/path", "some/path", "./some/path"), it suffices
-  // to simply check for the existence of '/', especially since it must not
-  // exist in filenames.
-  const char *path = jv_string_value(lib_name);
-
-#ifdef WIN32
-  if (path[0] && path[1] == ':' &&
-      ((path[0] >= 'a' && path[0] <= 'z') ||
-       (path[0] >= 'A' && path[0] <= 'Z')))
-    return expand_path(lib_name); // absolute path
-  if (path[0] == '\\' && path[1] == '\\')
-    return expand_path(lib_name); // UNC, absolute path
-#endif
-
-  for (const char* p2 = path; *p2; p2++) {
-    if (*p2 == ':')
-      return jv_invalid_with_msg(jv_string("Library URIs not yet supported"));
-    if (*p2 == '/')
-      return expand_path(lib_name);
-#ifdef WIN32
-    if (*p2 == sep)
-      return expand_path(lib_name);
-#endif
-  }
-
-  struct stat st;
-  int ret;
-
-  jv lib_filename = jv_string_fmt("%s.jq", jv_string_value(lib_name));
-  jv_array_foreach(lib_search_paths, i, spath) {
-    jv testpath = jv_string_fmt("%s%c%s",
-                                jv_string_value(spath), sep, jv_string_value(lib_filename));
-    jv_free(spath);
-    ret = stat(jv_string_value(testpath),&st);
-    if (ret == 0) {
-      jv_free(lib_filename);
-      jv_free(lib_name);
-      return testpath;
-    }
-    jv_free(testpath);
-  }
-  jv output = jv_invalid_with_msg(jv_string_fmt("Could not find library: %s", path));
-  jv_free(lib_filename);
-  jv_free(lib_name);
-  return output;
-}
-
-static jv compile_bind_lib(jq_state *jq, block* bb, const char* lib) {
-  int nerrors = 0;
-  struct locfile src;
-  block funcs;
-  jv data = jv_load_file(lib, 1);
-  if (!jv_is_valid(data))
-    return data;
-
-  locfile_init(&src, jq, jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
-  nerrors = jq_parse_library(&src, &funcs);
-  if (nerrors == 0)
-    *bb = block_bind_referenced(funcs, *bb, OP_IS_CALL_PSEUDO);
-
-  locfile_free(&src);
-  jv_free(data);
-  if (nerrors)
-    return jv_invalid_with_msg(jv_string_fmt("Failed to parse library %s.",lib));
-  return jv_true();
-}
-
 int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, jv args) {
   jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   assert(jv_get_kind(lib_paths) == JV_KIND_ARRAY);
@@ -1037,7 +932,7 @@ int jq_compile_libs_args(jq_state *jq, const char* str, jv lib_paths, jv libs, j
 
   lib_paths = build_lib_search_chain(lib_paths);
   jv_array_foreach(libs, i, lib) {
-    jv libpath = find_lib(lib_paths, lib);
+    jv libpath = find_lib(lib_paths, lib, jv_null() /* XXX */);
     if (!jv_is_valid(libpath)) {
       jv emsg = jv_invalid_get_msg(libpath);
       fprintf(stderr, "jq: error: %s\n",jv_string_value(emsg));
