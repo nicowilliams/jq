@@ -1,0 +1,2 @@
+This is a special branch of https://github.com/stedolan/jq, intended to
+cache compilations of `parser.y` to avoid issues with bison versions.
