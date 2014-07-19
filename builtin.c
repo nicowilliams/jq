@@ -974,7 +974,8 @@ static const char* const jq_builtins[] = {
   "def match(val): if val | type == \"string\" then match(val; null) elif val | type == \"array\" and (val | length) > 1 then match(val[0]; val[1]) elif val | type == \"array\" and (val | length > 0) then match(val[0]; null) else error((val | type) + \" not a string or array\") end;",
   "def test(re; mode): _match_impl(re; mode; true);",
   "def test(val): if val |type == \"string\" then test(val; null) elif val | type == \"array\" and (val | length) > 1 then test(val[0]; val[1]) elif val | type == \"array\" and (val | length > 0) then test(val[0]; null) else error((val | type) + \" not a string or array\") end;",
-//  "def test(re): _match(re; null; 1);",
+  "def captures(re; mods): match(re; mods) | reduce ( .captures | .[] | select(.name != null) | { (.name) : .string } ) as $pair ({}; . + $pair);",
+  "def captures(re): captures(re; null);",
   // range/3, with a `by` expression argument
   "def range(init; upto; by): "
   "     def _range: "
