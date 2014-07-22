@@ -68,7 +68,6 @@ static jv find_lib(jq_state *jq, jv lib_name, jv lib_search_path) {
   jv_array_foreach(lib_search_paths, i, spath) {
     jv testpath = jq_realpath(jv_string_fmt("%s/%s.jq",jv_string_value(spath),jv_string_value(lib_name)));
     
-    printf("Searching for %s\n", jv_string_value(testpath));
     jv_free(spath);
     ret = stat(jv_string_value(testpath),&st);
     if (ret == 0) {
@@ -111,6 +110,7 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
       jv emsg = jv_invalid_get_msg(lib_path);
       fprintf(stderr, "jq: error: %s\n",jv_string_value(emsg));
       jv_free(emsg);
+      jv_free(lib_origin);
       jv_free(as);
       jv_free(deps);
       return 1;
@@ -124,10 +124,12 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
       bk = block_bind_library(lib_state->defs[state_idx], bk, OP_IS_CALL_PSEUDO, jv_string_value(as));
       jv_free(lib_path);
     } else { // Not found.   Add it to the table before binding.
-      block dep_def_block;
+      block dep_def_block = gen_noop();
       nerrors += load_library(jq, lib_path, &dep_def_block, lib_state);
       if (nerrors == 0)
         bk = block_bind_library(dep_def_block, bk, OP_IS_CALL_PSEUDO, jv_string_value(as));
+      else
+        block_free(dep_def_block);
     }
     jv_free(as);
   }
@@ -170,17 +172,24 @@ int load_program(jq_state *jq, struct locfile* src, block *out_block) {
   block program;
   struct lib_loading_state lib_state = {0,0,0};
   nerrors = jq_parse(src, &program);
-  if (nerrors == 0) {
-    nerrors = process_dependencies(jq, jq_get_lib_origin(jq), &program, &lib_state);
-  }
+  if (nerrors)
+    return nerrors;
+
+  nerrors = process_dependencies(jq, jq_get_lib_origin(jq), &program, &lib_state);
   block libs = gen_noop();
   for (uint64_t i = 0; i < lib_state.ct; ++i) {
     free(lib_state.names[i]);
-    libs = block_join(libs, lib_state.defs[i]);
+    if (nerrors == 0)
+      libs = block_join(libs, lib_state.defs[i]);
+    else
+      block_free(lib_state.defs[i]);
   }
   free(lib_state.names);
   free(lib_state.defs);
-  *out_block = block_drop_unreferenced(block_join(libs, program));
+  if (nerrors)
+    block_free(program);
+  else
+    *out_block = block_drop_unreferenced(block_join(libs, program));
 
   return nerrors;
 }

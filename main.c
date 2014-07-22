@@ -1,10 +1,10 @@
 #include <assert.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <ctype.h>
 #include <errno.h>
 #include <libgen.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include <unistd.h>
 #include "compile.h"
 #include "jv.h"
@@ -342,21 +342,25 @@ int main(int argc, char* argv[]) {
     }
   }
 
-	char *penv = getenv("JQ_LIBRARY_PATH");
-	if (penv) {
+  char *penv = getenv("JQ_LIBRARY_PATH");
+  if (penv) {
 #ifdef WIN32
 #define PATH_ENV_SEPARATOR ";"
 #else
 #define PATH_ENV_SEPARATOR ":"
 #endif
-		lib_search_paths = jv_array_concat(lib_search_paths,jv_string_split(jv_string(penv),jv_string(PATH_ENV_SEPARATOR)));
+    lib_search_paths = jv_array_concat(lib_search_paths,jv_string_split(jv_string(penv),jv_string(PATH_ENV_SEPARATOR)));
 #undef PATH_ENV_SEPARATOR
-	}
-	jq_set_lib_dirs(jq,lib_search_paths);
-  penv = strdup(argv[0]);
+  }
+  jq_set_lib_dirs(jq,lib_search_paths);
 
-  jq_set_lib_origin(jq,jv_string(dirname(penv)));
-  free(penv);
+  char *origin = strdup(argv[0]);
+  if (origin == NULL) {
+    fprintf(stderr, "Error: out of memory\n");
+    exit(1);
+  }
+  jq_set_lib_origin(jq,jv_string(dirname(origin)));
+  free(origin);
 
 #if (!defined(WIN32) && defined(HAVE_ISATTY)) || defined(HAVE__ISATTY)
 

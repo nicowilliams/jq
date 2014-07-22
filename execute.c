@@ -900,31 +900,6 @@ static struct bytecode *optimize(struct bytecode *bc) {
   return optimize_code(bc);
 }
 
-
-
-static jv compile_bind_lib(jq_state *jq, block* bb, const char* lib) {
-  int nerrors = 0;
-  struct locfile* src;
-  block funcs;
-  jv data = jv_load_file(lib, 1);
-  if (jv_is_valid(data)) {
-    src = locfile_init(jq, jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
-    nerrors = jq_parse_library(src, &funcs);
-    if (nerrors == 0) {
-      *bb = block_bind_referenced(funcs, *bb, OP_IS_CALL_PSEUDO);
-      locfile_free(src);
-    } else {
-      locfile_free(src);
-      jv_free(data);
-      return jv_invalid_with_msg(jv_string_fmt("Failed to parse lib %s.",lib));
-    }
-  } else {
-    return data;
-  }
-  jv_free(data);
-  return jv_true(); // Don't actually care.  The point is this is not invalid and doesn't malloc.
-}
-
 int jq_compile_args(jq_state *jq, const char* str, jv args) {
   jv_nomem_handler(jq->nomem_handler, jq->nomem_handler_data);
   assert(jv_get_kind(args) == JV_KIND_ARRAY);
@@ -967,7 +942,6 @@ int jq_compile_args(jq_state *jq, const char* str, jv args) {
   locfile_free(locations);
   return jq->bc != NULL;
 }
-
 
 int jq_compile(jq_state *jq, const char* str) {
   return jq_compile_args(jq, str, jv_array());

@@ -13,7 +13,7 @@ struct locfile* locfile_init(jq_state *jq, const char* data, int length) {
   struct locfile* l = jv_mem_alloc(sizeof(struct locfile));
   l->jq = jq;
   l->data = jv_mem_alloc(length);
-  memmove((char*)l->data,data,length);
+  memcpy((char*)l->data,data,length);
   l->length = length;
   l->nlines = 1;
   l->refct = 1;
