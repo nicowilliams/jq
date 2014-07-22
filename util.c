@@ -4,7 +4,9 @@
 #include <string.h>
 #endif
 #include <assert.h>
+#ifndef WIN32
 #include <pwd.h>
+#endif
 #include <stdlib.h>
 #include <unistd.h>
 #include <limits.h>
@@ -75,7 +77,11 @@ jv jq_realpath(jv path) {
   if (path_max > 0) {
      buf = malloc(sizeof(char) * path_max);
   }
+#ifdef WIN32
+  char *tmp = _fullpath(buf, jv_string_value(path), path_max);
+#else
   char *tmp = realpath(jv_string_value(path), buf);
+#endif
   if (tmp == NULL) {
     free(buf);
     return path;
