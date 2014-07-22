@@ -26,6 +26,15 @@ def g: "bar";
 def fg: f+g;
 EOF
 
+cat > "$d/a.jq" <<EOF
+def a: "a";
+EOF
+
+cat > "$d/b.jq" <<EOF
+def a: "b";
+def b: "c";
+EOF
+
 if [ "`HOME=$d $VALGRIND ./jq -nr fg`" != foobar ]; then
     echo "Bug #479 appears to be back" 1>&2
     exit 1
@@ -36,3 +45,7 @@ if [ `HOME=$d $VALGRIND ./jq --debug-dump-disasm -n fg | grep '^[a-z]' | wc -l` 
     exit 1
 fi
 
+if ! $VALGRIND ./jq -ner -L $d 'import a as foo; import b as bar; import a as foobar; def fooa: foo::a; [fooa, bar::a, bar::b, foo::a, foobar::a] | . == ["a","b","c","a","a"]' > /dev/null; then
+    echo "Module system appears to be broken" 1>&2
+    exit 1
+fi
