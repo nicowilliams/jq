@@ -220,7 +220,7 @@ Imports FuncDefs {
 } 
 
 Imports:
-/* empty */ {
+%empty {
   $$ = gen_noop();
 } |
 Import Imports {
