@@ -13,7 +13,7 @@ typedef enum {
   JV_KIND_NUMBER,
   JV_KIND_STRING,
   JV_KIND_ARRAY,
-  JV_KIND_OBJECT
+  JV_KIND_OBJECT,
 } jv_kind;
 
 struct jv_refcnt;

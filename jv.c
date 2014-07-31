@@ -409,8 +409,13 @@ typedef struct {
   char data[];
 } jvp_string;
 
+#define JVP_INLINE_STR_MAXLEN   (sizeof(jv) - 2)
+#define JVP_IS_INLINE(j)        (((j).kind_flags & ~(KIND_MASK) || (j).u.ptr == NULL))
+#define JVP_INLINE_LENGTH(j)    (((j).kind_flags & ~(KIND_MASK)) >> 4)
+
 static jvp_string* jvp_string_ptr(jv a) {
   assert(jv_get_kind(a) == JV_KIND_STRING);
+  assert(!JVP_IS_INLINE(a));
   return (jvp_string*)a.u.ptr;
 }
 
@@ -428,8 +433,19 @@ static jv jvp_string_copy_replace_bad(const char* data, uint32_t length) {
   const char* cstart;
 
   uint32_t maxlength = length * 3 + 1; // worst case: all bad bytes, each becomes a 3-byte U+FFFD
-  jvp_string* s = jvp_string_alloc(maxlength);
-  char* out = s->data;
+  char *out, *start;
+  jv r = {JV_KIND_STRING, 0, 0, 0, {(void *)0}};
+  jvp_string *s = NULL;
+  if (maxlength <= JVP_INLINE_STR_MAXLEN) {
+    s = jvp_string_alloc(maxlength);
+    out = s->data;
+    start = s->data;
+  } else {
+    r.u.ptr = &s->refcnt;
+    out = (char *)&r;
+    start = (char *)&r;
+    out++;
+  }
   int c = 0;
 
   while ((i = jvp_utf8_next((cstart = i), end, &c))) {
@@ -437,17 +453,26 @@ static jv jvp_string_copy_replace_bad(const char* data, uint32_t length) {
       c = 0xFFFD; // U+FFFD REPLACEMENT CHARACTER
     }
     out += jvp_utf8_encode(c, out);
-    assert(out < s->data + maxlength);
+    assert(out < start + maxlength);
   }
-  length = out - s->data;
-  s->data[length] = 0;
+  length = out - start;
+  start[length] = 0;
+  if (maxlength <= JVP_INLINE_STR_MAXLEN)
+    return r;
   s->length_hashed = length << 1;
-  jv r = {JV_KIND_STRING, 0, 0, 0, {&s->refcnt}};
   return r;
 }
 
 /* Assumes valid UTF8 */
 static jv jvp_string_new(const char* data, uint32_t length) {
+  if (length < sizeof(jv) - 2) {
+    jv r = {JV_KIND_STRING | length << 4};
+    char *s = (char *)&r;
+    s++;
+    memcpy(s, data, length);
+    s[length] = 0;
+    return r;
+  }
   jvp_string* s = jvp_string_alloc(length);
   s->length_hashed = length << 1;
   memcpy(s->data, data, length);
@@ -457,6 +482,13 @@ static jv jvp_string_new(const char* data, uint32_t length) {
 }
 
 static jv jvp_string_empty_new(uint32_t length) {
+  if (length < sizeof(jv) - 2) {
+    jv r = {JV_KIND_STRING | length << 4};
+    char *s = (char *)&r;
+    s++;
+    memset(s, 0, sizeof(jv) - 1);
+    return r;
+  }
   jvp_string* s = jvp_string_alloc(length);
   s->length_hashed = 0;
   memset(s->data, 0, length);
@@ -466,9 +498,11 @@ static jv jvp_string_empty_new(uint32_t length) {
 
 
 static void jvp_string_free(jv js) {
-  jvp_string* s = jvp_string_ptr(js);
-  if (jvp_refcnt_dec(&s->refcnt)) {
-    jv_mem_free(s);
+  if (!JVP_IS_INLINE(js)) {
+    jvp_string* s = jvp_string_ptr(js);
+    if (jvp_refcnt_dec(&s->refcnt)) {
+      jv_mem_free(s);
+    }
   }
 }
 
@@ -485,6 +519,16 @@ static uint32_t jvp_string_remaining_space(jvp_string* s) {
 static jv jvp_string_append(jv string, const char* data, uint32_t len) {
   jvp_string* s = jvp_string_ptr(string);
   uint32_t currlen = jvp_string_length(s);
+
+  if (JVP_IS_INLINE(string) &&
+      JVP_INLINE_LENGTH(string) + len <= JVP_INLINE_STR_MAXLEN) {
+    char *s = (char *)&string;
+    s += JVP_INLINE_LENGTH(string) + 1;
+    assert((s + len + 1) < ((char *)&string) + sizeof (string));
+    memcpy(s, data, len);
+    string.kind_flags = JV_KIND_STRING | ((JVP_INLINE_LENGTH(string) + len) << 4);
+    return string;
+  }
     
   if (jvp_refcnt_unshared(string.u.ptr) &&
       jvp_string_remaining_space(s) >= len) {
@@ -516,6 +560,10 @@ static uint32_t rotl32 (uint32_t x, int8_t r){
 
 static uint32_t jvp_string_hash(jv jstr) {
   jvp_string* str = jvp_string_ptr(jstr);
+  
+  if (JVP_IS_INLINE(jstr)) {
+    ...;
+  }
   if (str->length_hashed & 1) 
     return str->hash;
 
@@ -571,6 +619,7 @@ static uint32_t jvp_string_hash(jv jstr) {
 }
 
 static int jvp_string_equal(jv a, jv b) {
+  // XXX inline strings
   assert(jv_get_kind(a) == JV_KIND_STRING);
   assert(jv_get_kind(b) == JV_KIND_STRING);
   jvp_string* stra = jvp_string_ptr(a);
@@ -600,6 +649,7 @@ jv jv_string(const char* str) {
 
 int jv_string_length_bytes(jv j) {
   assert(jv_get_kind(j) == JV_KIND_STRING);
+  // XXX inline strings
   int r = jvp_string_length(jvp_string_ptr(j));
   jv_free(j);
   return r;
