@@ -322,6 +322,24 @@ jv jv_setpath(jv root, jv path, jv value) {
                 jv_setpath(jv_get(jv_copy(root), jv_copy(pathcurr)), pathrest, value));
 }
 
+jv jv_string2path(jv root, jv pathstr) {
+  const char *s = jv_string_value(pathstr);
+  const char *e;
+  jv a = jv_array();
+
+  while (s && *s) {
+    if (*s == '.') {
+      jv_free(a);
+      return jv_invalid_with_msg(jv_string("Zero-length path string components not allowed"));
+    }
+    e = strchr(s, '.');
+    if (e == NULL)
+      e = s + strlen(s);
+    a = jv_array_append(a, jv_string_sized(s, e - s));
+  }
+  return a;
+}
+
 jv jv_getpath(jv root, jv path) {
   if (jv_get_kind(path) != JV_KIND_ARRAY) {
     jv_free(root);

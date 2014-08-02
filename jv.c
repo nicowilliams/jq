@@ -299,6 +299,19 @@ jv jv_array() {
   return jv_array_sized(16);
 }
 
+jv jv_array_literal(jv e0, ...) {
+  va_list args;
+  va_start(args, e0);
+  jv a = jv_array();
+  jv e = e0;
+  while (jv_is_valid(e)) {
+    a = jv_array_append(a, e);
+    e = va_arg(args, jv);
+  }
+  va_end(args);
+  return a;
+}
+
 int jv_array_length(jv j) {
   assert(jv_get_kind(j) == JV_KIND_ARRAY);
   int len = jvp_array_length(j);

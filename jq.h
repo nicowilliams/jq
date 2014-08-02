@@ -6,9 +6,6 @@
 
 typedef enum jq_runtime_flags {
   JQ_DEBUG_TRACE = 1,   /* trace jq program execution */
-  JQ_OPEN_FILES = 2,    /* jq program allowed to open any file */
-  JQ_OPEN_WRITE = 4,    /* jq program allowed to open files for writing */
-  JQ_EXEC = 4,          /* jq program allowed to popen() */
 } jq_runtime_flags;
 
 typedef struct jq_state jq_state;

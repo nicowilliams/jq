@@ -65,6 +65,7 @@ int jv_is_integer(jv);
 
 jv jv_array(void);
 jv jv_array_sized(int);
+jv jv_array_literal(jv, ...);
 int jv_array_length(jv);
 jv jv_array_get(jv, int);
 jv jv_array_set(jv, int, jv);
@@ -189,6 +190,7 @@ void jv_parser_free(struct jv_parser*);
 jv jv_get(jv, jv);
 jv jv_set(jv, jv, jv);
 jv jv_has(jv, jv);
+jv jv_string2path(jv, jv);
 jv jv_setpath(jv, jv, jv);
 jv jv_getpath(jv, jv);
 jv jv_delpaths(jv, jv);
