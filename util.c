@@ -112,8 +112,10 @@ jv jq_realpath(jv path) {
 
   if (tmp == NULL) {
     free(buf);
-    return jv_invalid_with_msg(jv_string_fmt("Could not canonicalized path '%s': %s",
-                                             jv_string_value(path), strerror(errno)));
+    jv res = jv_invalid_with_msg(jv_string_fmt("Could not canonicalized path '%s': %s",
+                                               jv_string_value(path), strerror(errno)));
+    jv_free(path);
+    return res;
   }
   jv_free(path);
   path = jv_string(tmp);
