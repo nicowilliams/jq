@@ -6,6 +6,7 @@
 jv expand_path(jv);
 jv get_home(void);
 jv jq_realpath(jv);
+jv jq_getcwd(void);
 
 const void *_jq_memmem(const void *haystack, size_t haystacklen,
                        const void *needle, size_t needlelen);

@@ -16,6 +16,7 @@
 #include "util.h"
 #include "compile.h"
 
+// This should be an array of structs, not a struct of arrays.
 struct lib_loading_state {
   char **names;
   block *defs;
@@ -95,21 +96,22 @@ static jv find_lib(jq_state *jq, jv lib_name, jv lib_search_path) {
     jv testpath = jq_realpath(jv_string_fmt("%s/%s.jq",
                                             jv_string_value(spath),
                                             jv_string_value(rel_path)));
-    ret = stat(jv_string_value(testpath),&st);
-    if (ret == -1 && errno == ENOENT) {
+    if (!jv_is_valid(testpath)) {
       jv_free(testpath);
       testpath = jq_realpath(jv_string_fmt("%s/%s/%s.jq",
                                            jv_string_value(spath),
                                            jv_string_value(rel_path),
                                            jv_string_value(lib_name)));
-      ret = stat(jv_string_value(testpath),&st);
     }
-    if (ret == 0) {
-      jv_free(spath);
-      jv_free(rel_path);
-      jv_free(lib_name);
-      jv_free(lib_search_paths);
-      return testpath;
+    if (jv_is_valid(testpath)) {
+      ret = stat(jv_string_value(testpath),&st);
+      if (ret == 0) {
+        jv_free(spath);
+        jv_free(rel_path);
+        jv_free(lib_name);
+        jv_free(lib_search_paths);
+        return testpath;
+      }
     }
     jv_free(testpath);
     jv_free(spath);
@@ -142,10 +144,16 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
       jv_free(search);
       search = jv_string("");
     }
-    if (strncmp("$ORIGIN/",jv_string_value(search),8) == 0) {
+    if (strncmp("$ORIGIN/",jv_string_value(search), sizeof ("$ORIGIN/") - 1) == 0) {
       jv tsearch = jv_string_fmt("%s/%s",
                                  jv_string_value(lib_origin),
                                  jv_string_value(search) + sizeof ("$ORIGIN/") - 1);
+      jv_free(search);
+      search = tsearch;
+    } else if (strncmp("$JQ_ORIGIN/",jv_string_value(search), sizeof ("$JQ_ORIGIN/") - 1) == 0) {
+      jv tsearch = jv_string_fmt("%s/%s",
+                                 jv_string_value(jq_get_attr(jq, jv_string("JQ_ORIGIN"))),
+                                 jv_string_value(search) + sizeof ("$JQ_ORIGIN/") - 1);
       jv_free(search);
       search = tsearch;
     }
@@ -166,6 +174,7 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
     }
     if (state_idx < lib_state->ct) { // Found
       // XXX Check version matching here!
+      // XXX We've lost the library's MODULEMETA by this point!  Save it!
       if (version_matches(jq, bk, lib_state->defs[state_idx]))
         bk = block_bind_library(lib_state->defs[state_idx], bk, OP_IS_CALL_PSEUDO, jv_string_value(as));
       else

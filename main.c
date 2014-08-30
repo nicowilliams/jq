@@ -9,6 +9,7 @@
 #include "compile.h"
 #include "jv.h"
 #include "jq.h"
+#include "util.h"
 #include "jv_alloc.h"
 #include "version.h"
 
@@ -361,18 +362,13 @@ int main(int argc, char* argv[]) {
   }
   jq_set_attr(jq, jv_string("LIB_DIRS"), lib_search_paths);
 
-  char *origin = strdup(argv[0]);
-  if (origin == NULL) {
+  char *jq_origin = strdup(argv[0]);
+  if (jq_origin == NULL) {
     fprintf(stderr, "Error: out of memory\n");
     exit(1);
   }
-  jq_set_attr(jq, jv_string("ORIGIN"), jv_string(dirname(origin)));
-  free(origin);
-
-  if (strchr(JQ_VERSION, '-') == NULL)
-    jq_set_attr(jq, jv_string("VERSION_DIR"), jv_string(JQ_VERSION));
-  else
-    jq_set_attr(jq, jv_string("VERSION_DIR"), jv_string_fmt("%.*s-master", strchr(JQ_VERSION, '-') - JQ_VERSION, JQ_VERSION));
+  jq_set_attr(jq, jv_string("JQ_ORIGIN"), jq_realpath(jv_string(dirname(jq_origin))));
+  free(jq_origin);
 
 #if (!defined(WIN32) && defined(HAVE_ISATTY)) || defined(HAVE__ISATTY)
 
@@ -409,7 +405,11 @@ int main(int argc, char* argv[]) {
     die();
   }
   
+  jq_set_attr(jq, jv_string("ORIGIN"), jq_getcwd());
   if (options & FROM_FILE) {
+    char *origin = strdup(argv[0]);
+    jq_set_attr(jq, jv_string("ORIGIN"), jq_realpath(jv_string(dirname(origin))));
+    free(origin);
     jv data = jv_load_file(program, 1);
     if (!jv_is_valid(data)) {
       data = jv_invalid_get_msg(data);

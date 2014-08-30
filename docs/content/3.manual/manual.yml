@@ -2252,17 +2252,19 @@ sections:
       in `.jq`.  Modules should start with a `module` directive.
       Programs and modules must `import` their dependencies, if any.
 
-      A search path is used to search for modules.  Each directory in
-      the search path is tested twice: once with a directory named "any"
-      added on the end, and once with the jq version number as a
-      directory added on the end.
+      A search path is used to search for modules.
 
       For paths starting with "~/", the user's home directory is
       substituted for "~".
 
       For paths starting with "$ORIGIN/", the path of the directory of
       the dependent is used.  For main programs that's the path of the
-      jq executable's containing directory.
+      the program (if the `--from-file`/`-f` option is used) or the
+      current working directory.  Note that this allows for modules to
+      be installed local to modules.
+
+      For paths starting with "$JQ_ORIGIN/", the path of the jq
+      executable's containing directory is used.
 
       Modules may be organized into a hierarchy, with name components
       separated by double-colons ("::").  For example: "foo::bar".  Each
@@ -2270,24 +2272,18 @@ sections:
       filesystem.  Consecutive components with the same name are not
       allowed to avoid ambiguities (e.g., "foo::foo").
 
-      For example, a module named "foo::bar" would be searched for in
-      "foo/bar.jq" and "foo/bar/bar.jq" in the given search path. This
-      is intended to allow modules to be placed in a directory along
-      with, for example, version control files, README files, and so on,
-      but also to allow for single-file modules.
-
       The search path used is as follows:
 
       - the directory indicated in the search key of the `import`
-        directive metadata (see below)
+        directive metadata, if any (see below)
       - otherwise any directory(ies) listed in the `-L` command-line
         argument
       - otherwise any directory(ies) listed in the `$JQ_LIBRARY_PATH`
         environment variable
 
       For example, with `-L$HOME/.jq` A module `foo` can be found in
-      `$HOME/.jq/any/foo.jq`, `$HOME/.jq/1.4/foo.jq`,
-      `$HOME/.jq/any/foo/foo.jq`, and in `$HOME/.jq/foo/foo.jq`.
+      `$HOME/.jq/foo.jq`, and in `$HOME/.jq/foo/foo.jq`.
+
 
     entries:
       - title: "`module NAME {<metadata>};`"

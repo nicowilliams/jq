@@ -1,4 +1,5 @@
 
+
 #ifdef HAVE_MEMMEM
 #define _GNU_SOURCE
 #include <string.h>
@@ -7,6 +8,7 @@
 #ifndef WIN32
 #include <pwd.h>
 #endif
+#include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <limits.h>
@@ -14,6 +16,7 @@
 
 #include "util.h"
 #include "jv.h"
+#include "jv_alloc.h"
 
 jv expand_path(jv path) {
   assert(jv_get_kind(path) == JV_KIND_STRING);
@@ -65,31 +68,61 @@ jv get_home() {
   return ret;
 }
 
+static long get_path_max(const char *path) {
+  long path_max;
+
+  errno = 0;
+
+#ifdef _PC_PATH_MAX
+
+  path_max = pathconf(path, _PC_PATH_MAX);
+  if (path_max == -1) {
+#ifdef PATH_MAX
+    path_max = PATH_MAX;
+#endif /* PATH_MAX */
+  }
+
+#else
+
+#ifdef PATH_MAX
+  path_max = PATH_MAX;
+#else
+#error "Don't know how to find PATH_MAX"
+#endif
+
+#endif
+
+  return path_max;
+}
 
 jv jq_realpath(jv path) {
-  int path_max;
-  char *buf = NULL;
-#ifdef _PC_PATH_MAX
-  path_max = pathconf(jv_string_value(path),_PC_PATH_MAX);
-#else
-  path_max = PATH_MAX;
-#endif
-  if (path_max > 0) {
-     buf = malloc(sizeof(char) * path_max);
+  long path_max = get_path_max(jv_string_value(path));
+  if (path_max < 1) {
+    jv_free(path);
+    return jv_invalid_with_msg(jv_string_fmt("Could not discover value of PATH_MAX: %s",
+                                             strerror(errno)));
   }
+  char *buf = jv_mem_alloc(path_max);
+
 #ifdef WIN32
   char *tmp = _fullpath(buf, jv_string_value(path), path_max);
 #else
   char *tmp = realpath(jv_string_value(path), buf);
 #endif
+
   if (tmp == NULL) {
     free(buf);
-    return path;
+    return jv_invalid_with_msg(jv_string_fmt("Could not canonicalized path '%s': %s",
+                                             jv_string_value(path), strerror(errno)));
   }
   jv_free(path);
   path = jv_string(tmp);
   free(tmp);
   return path;
+}
+
+jv jq_getcwd(void) {
+  return jq_realpath(jv_string("."));
 }
 
 const void *_jq_memmem(const void *haystack, size_t haystacklen,
