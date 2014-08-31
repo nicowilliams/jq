@@ -22,6 +22,20 @@ struct lib_loading_state {
   block *defs;
   uint64_t ct;
 };
+
+struct lib {
+  jv name;
+  jv metadata;
+  block blocks;
+  uint64_t ct;
+};
+
+struct loaded_libs {
+  struct lib *libs; // Array
+  jv indices;       // Object; values are indices into libs[]
+  int nlibs;
+};
+
 static int load_library(jq_state *jq, jv lib_path, block *out_block, struct lib_loading_state *lib_state);
 
 // Given a lib_path to search first, creates a chain of search paths
@@ -123,8 +137,194 @@ static jv find_lib(jq_state *jq, jv lib_name, jv lib_search_path) {
   return output;
 }
 
-static int version_matches(jq_state *jq, block importer, block module) {
+static int semver_match_2obj(jv impv, jv modv) {
+  jv_kind impv_k = jv_get_kind(impv);
+  jv_kind modv_k = jv_get_kind(modv);
+  int impv_is_obj = (impv_k == JV_KIND_OBJECT);
+  int modv_is_obj = (modv_k == JV_KIND_OBJECT);
+  assert((impv_is_obj && !modv_is_obj) || (!impv_is_obj && modv_is_obj));
+  
+  jv o = (impv_is_obj ? impv : modv);
+  jv x = (impv_is_obj ? modv : impv);
+
+  if (jv_object_contains(jv_copy(o), jv_string("hash"))) {
+    if (!jv_equal(jv_object_get(jv_copy(o), jv_string("hash")), x)) {
+      jv_free(o);
+      jv_free(x);
+      return 0;
+    }
+  }
+  if (jv_object_contains(jv_copy(o), jv_string("commit"))) {
+    if (!jv_equal(jv_object_get(jv_copy(o), jv_string("commit")), x)) {
+      jv_free(o);
+      jv_free(x);
+      return 0;
+    }
+  }
+  if (jv_get_kind(x) != JV_KIND_NUMBER) {
+    jv_free(o);
+    jv_free(x);
+    return 0;
+  }
+  if (impv_is_obj && jv_object_contains(jv_copy(impv), jv_string("major"))) {
+    jv_free(o);
+    jv_free(x);
+    return 0;
+  }
+  if (jv_get_kind(x) != JV_KIND_NUMBER) {
+    jv_free(o);
+    jv_free(x);
+    return 0;
+  }
+  double ovnum = 0.0;
+  if (jv_object_contains(jv_copy(o), jv_string("minor"))) {
+    jv n = jv_object_get(jv_copy(o), jv_string("minor"));
+    ovnum = jv_number_value(n);
+    jv_free(n);
+  }
+  if ((impv_is_obj && ovnum > jv_number_value(x)) ||
+      (!impv_is_obj && ovnum < jv_number_value(x))) {
+    jv_free(o);
+    jv_free(x);
+    return 0;
+  }
+  if (!jv_object_contains(jv_copy(o), jv_string("micro")))
+    return 1;
+  jv n = jv_object_get(jv_copy(o), jv_string("micro"));
+  double micro = jv_number_value(n);
+  jv_free(n);
+  while (micro > 1)
+    micro /= 10;
+  ovnum += micro;
+  jv_free(o);
+  jv_free(x);
+  if ((impv_is_obj && ovnum > jv_number_value(x)) ||
+      (!impv_is_obj && ovnum < jv_number_value(x)))
+    return 0;
   return 1;
+}
+
+static int semver_match_obj2obj(jv impv, jv modv) {
+  // First check assertion about hash/commit
+  if (jv_object_contains(jv_copy(impv), jv_string("hash"))) {
+    if (!jv_object_contains(jv_copy(modv), jv_string("hash"))) {
+      jv_free(impv);
+      jv_free(modv);
+      return 0;
+    }
+    if (!jv_equal(jv_object_get(jv_copy(impv), jv_string("hash")),
+                  jv_object_get(jv_copy(modv), jv_string("hash")))) {
+      jv_free(impv);
+      jv_free(modv);
+      return 0;
+    }
+  }
+  // XXX DRY
+  if (jv_object_contains(jv_copy(impv), jv_string("commit"))) {
+    if (!jv_object_contains(jv_copy(modv), jv_string("commit"))) {
+      jv_free(impv);
+      jv_free(modv);
+      return 0;
+    }
+    if (!jv_equal(jv_object_get(jv_copy(impv), jv_string("commit")),
+                  jv_object_get(jv_copy(modv), jv_string("commit")))) {
+      jv_free(impv);
+      jv_free(modv);
+      return 0;
+    }
+  }
+
+  // Now check version numbering
+  if (jv_object_contains(jv_copy(impv), jv_string("major"))) {
+    if (!jv_object_contains(jv_copy(modv), jv_string("major")) ||
+        !jv_equal(jv_object_get(jv_copy(impv), jv_string("major")),
+                  jv_object_get(jv_copy(modv), jv_string("major")))) {
+      jv_free(impv);
+      jv_free(modv);
+      return 0;
+    }
+  }
+  if (jv_object_contains(jv_copy(impv), jv_string("minor"))) {
+    if (!jv_object_contains(jv_copy(modv), jv_string("minor")))
+      return 0;
+    jv imin = jv_object_get(jv_copy(impv), jv_string("minor"));
+    jv mmin = jv_object_get(jv_copy(modv), jv_string("minor"));
+    if (jv_number_value(imin) != jv_number_value(mmin)) {
+      int res = (jv_number_value(mmin) >= jv_number_value(imin));
+      jv_free(imin);
+      jv_free(mmin);
+      jv_free(impv);
+      jv_free(modv);
+      return res;
+    }
+  }
+  if (jv_object_contains(jv_copy(impv), jv_string("micro"))) {
+    if (!jv_object_contains(jv_copy(modv), jv_string("micro")))
+      return 0;
+    jv imin = jv_object_get(jv_copy(impv), jv_string("micro"));
+    jv mmin = jv_object_get(jv_copy(modv), jv_string("micro"));
+    int res = (jv_number_value(mmin) >= jv_number_value(imin));
+    jv_free(imin);
+    jv_free(mmin);
+    jv_free(impv);
+    jv_free(modv);
+    return res;
+  }
+  // Note that we allow empty version objects to match!
+  return 1;
+}
+
+static int semver_match_pair(jv impv, jv modv) {
+  if (jv_equal(jv_copy(impv), jv_copy(modv))) {
+    jv_free(impv);
+    jv_free(modv);
+    return 1;
+  }
+  if (jv_get_kind(impv) == JV_KIND_NUMBER) {
+    if (jv_get_kind(modv) != JV_KIND_NUMBER) {
+      // XXX If modv is an object with no major version number but with
+      // a minor and (maybe) a micro version numbers, then we should be
+      // able to form a number to compare to impv.
+      return semver_match_2obj(impv, modv);
+      return 0;
+    }
+    int res = jv_number_value(impv) <= jv_number_value(modv);
+    jv_free(impv);
+    jv_free(modv);
+    return res;
+  }
+  if (jv_get_kind(impv) != JV_KIND_OBJECT)
+    return 0;
+  if (jv_get_kind(impv) == JV_KIND_OBJECT && jv_object_contains(jv_copy(impv), jv_string("version")))
+    return semver_match_pair(jv_object_get(impv, jv_string("version")), modv);
+  // Here impv is an object that may have "major", "minor", and/or
+  // "micro" keys.  modv still could be anything at all.
+
+  if (jv_get_kind(modv) == JV_KIND_OBJECT && jv_object_contains(jv_copy(modv), jv_string("version")))
+    modv = jv_object_get(modv, jv_string("version"));
+  if (jv_get_kind(modv) != JV_KIND_OBJECT)
+    return semver_match_2obj(impv, modv);
+  // Here both are objects that may have version keys.
+  return semver_match_obj2obj(impv, modv);
+}
+
+static int semver(jq_state *jq, jv importer, jv candidate) {
+  if (jv_get_kind(importer) != JV_KIND_ARRAY)
+    importer = JV_ARRAY(importer);
+  if (jv_get_kind(candidate) != JV_KIND_ARRAY)
+    candidate = JV_ARRAY(candidate);
+  int match = 0;
+  jv_array_foreach(importer, i, impv) {
+    jv_array_foreach(candidate, k, modv) {
+      if (semver_match_pair(impv, modv)) {
+        match = 1;
+        break;
+      }
+    }
+  }
+  jv_free(importer);
+  jv_free(candidate);
+  return match;
 }
 
 static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, struct lib_loading_state *lib_state) {

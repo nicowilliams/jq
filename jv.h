@@ -112,6 +112,7 @@ jv jv_string_explode(jv j);
 jv jv_string_implode(jv j);
 
 jv jv_object(void);
+int jv_object_contains(jv object, jv key);
 jv jv_object_get(jv object, jv key);
 jv jv_object_set(jv object, jv key, jv value);
 jv jv_object_delete(jv object, jv key);
