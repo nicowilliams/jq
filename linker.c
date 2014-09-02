@@ -24,16 +24,16 @@ struct lib_loading_state {
 };
 
 struct lib {
-  jv name;
-  jv metadata;
-  block blocks;
-  uint64_t ct;
+  jv name;      // module name
+  jv metadata;  // module metadata
+  block blocks; // parsed module
+  uint64_t ct;  // reference count
 };
 
 struct loaded_libs {
-  struct lib *libs; // Array
-  jv indices;       // Object; values are indices into libs[]
-  int nlibs;
+  struct lib *libs; // array
+  jv indices;       // object; values are arrays of numeric indices into libs[]
+  int nlibs;        // number of parsed libraries
 };
 
 static int load_library(jq_state *jq, jv lib_path, block *out_block, struct lib_loading_state *lib_state);
@@ -167,6 +167,7 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
       jv_free(search);
       search = tsearch;
     }
+    // XXX Move check of cache of parsed modules into find_lib()
     jv lib_path = find_lib(jq, name, search);
     if (!jv_is_valid(lib_path)) {
       jv emsg = jv_invalid_get_msg(lib_path);
@@ -207,6 +208,9 @@ static int process_dependencies(jq_state *jq, jv lib_origin, block *src_block, s
   jv_free(lib_origin);
   jv_free(deps);
   return nerrors;
+}
+
+static struct lib *load_library_cached(jq_state *jq, struct loaded_libs *libs, jv lib_path, jv importer) {
 }
 
 // Loads the library at lib_path into lib_state, putting the library's defs
