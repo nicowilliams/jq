@@ -182,6 +182,7 @@ int jv_cmp(jv, jv);
 jv jv_group(jv, jv);
 jv jv_sort(jv, jv);
 
+jv jv_semver_match(jv, jv);
 
 #endif
 
