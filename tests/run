@@ -142,7 +142,7 @@ if ! $VALGRIND $Q ./jq -ner -L $mods 'import c as foo; [foo::a, foo::c] | . == [
     exit 1
 fi
 
-if [ "`$VALGRIND $Q ./jq -cner -L $mods '\"c\" | modulemeta'`" != '{"whatever":null,"name":"c","deps":[{"as":"foo","name":"a"},{"search":"./","as":"d","name":"d"},{"search":"./../lib/jq","as":"e","name":"e"},{"search":"./../lib/jq","as":"f","name":"f"}]}' ]; then
+if [ "`$VALGRIND $Q ./jq -cner -L $mods '\"c\" | modulemeta'`" != '{"whatever":null,"name":"c","deps":[{"as":"foo","name":"a"},{"search":"./","as":"d","name":"d"},{"search":"./","name":"d"},{"search":"./../lib/jq","as":"e","name":"e"},{"search":"./../lib/jq","as":"f","name":"f"}]}' ]; then
     echo "modulemeta builtin appears to be broken" 1>&2
     exit 1
 fi
