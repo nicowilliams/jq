@@ -15,13 +15,14 @@
 #include "parser.h"
 #include "util.h"
 #include "compile.h"
+#include "builtin.h"
 
 struct lib_loading_state {
   char **names;
   block *defs;
   uint64_t ct;
 };
-static int load_library(jq_state *jq, jv lib_path, block *out_block, struct lib_loading_state *lib_state);
+static int load_library(jq_state *jq, jv lib_path, jv dependency_info, block *out_block, struct lib_loading_state *lib_state);
 
 // Given a lib_path to search first, creates a chain of search paths
 // in the following order:
@@ -133,10 +134,18 @@ static jv default_search(jv value) {
 }
 
 // XXX Split this into a util that takes a callback, and then...
-static int process_dependencies(jq_state *jq, jv jq_origin, jv lib_origin, block *src_block, struct lib_loading_state *lib_state) {
+static int process_dependencies(jq_state *jq,
+                                jv jq_origin,
+                                jv lib_origin,
+                                block *src_block,
+                                struct lib_loading_state *lib_state) {
   jv deps = block_take_imports(src_block);
   block bk = *src_block;
   int nerrors = 0;
+
+  // Act as though the program starts with import jq;
+  if (block_has_main(*src_block))
+    deps = jv_array_append(deps, JV_OBJECT(jv_string("name"), jv_string("jq")));
 
   jv_array_foreach(deps, i, dep) {
     jv name = jv_object_get(jv_copy(dep), jv_string("name"));
@@ -145,29 +154,34 @@ static int process_dependencies(jq_state *jq, jv jq_origin, jv lib_origin, block
       jv_free(as);
       as = jv_string("");
     }
-    jv search = default_search(jv_object_get(dep, jv_string("search")));
-    jv_array_foreach(search, k, search_elt) {
-      if (strcmp(".",jv_string_value(search_elt)) == 0) {
-        jv tsearch = jv_copy(lib_origin);
-        jv_free(search_elt);
-        search = jv_array_set(search, k, tsearch);
-      } else if (strncmp("./",jv_string_value(search_elt),sizeof("./")-1) == 0) {
-        jv tsearch = jv_string_fmt("%s/%s",
-                                   jv_string_value(lib_origin),
-                                   jv_string_value(search_elt) + sizeof ("./") - 1);
-        jv_free(search_elt);
-        search = jv_array_set(search, k, tsearch);
-      } else if (strncmp("$ORIGIN/",jv_string_value(search_elt),sizeof("$ORIGIN/")-1) == 0) {
-        jv tsearch = jv_string_fmt("%s/%s",
-                                   jv_string_value(jq_origin),
-                                   jv_string_value(search_elt) + sizeof ("$ORIGIN/") - 1);
-        jv_free(search_elt);
-        search = jv_array_set(search, k, tsearch);
-      } else {
-        jv_free(search_elt);
+    jv lib_path;
+    if (strcmp(jv_string_value(name), "jq") != 0) {
+      jv search = default_search(jv_object_get(dep, jv_string("search")));
+      jv_array_foreach(search, k, search_elt) {
+        if (strcmp(".",jv_string_value(search_elt)) == 0) {
+          jv tsearch = jv_copy(lib_origin);
+          jv_free(search_elt);
+          search = jv_array_set(search, k, tsearch);
+        } else if (strncmp("./",jv_string_value(search_elt),sizeof("./")-1) == 0) {
+          jv tsearch = jv_string_fmt("%s/%s",
+                                     jv_string_value(lib_origin),
+                                     jv_string_value(search_elt) + sizeof ("./") - 1);
+          jv_free(search_elt);
+          search = jv_array_set(search, k, tsearch);
+        } else if (strncmp("$ORIGIN/",jv_string_value(search_elt),sizeof("$ORIGIN/")-1) == 0) {
+          jv tsearch = jv_string_fmt("%s/%s",
+                                     jv_string_value(jq_origin),
+                                     jv_string_value(search_elt) + sizeof ("$ORIGIN/") - 1);
+          jv_free(search_elt);
+          search = jv_array_set(search, k, tsearch);
+        } else {
+          jv_free(search_elt);
+        }
       }
+      lib_path = find_lib(jq, jv_copy(name), search);
+    } else {
+      lib_path = jv_copy(name);
     }
-    jv lib_path = find_lib(jq, name, search);
     // XXX ...move the rest of this into a callback.
     if (!jv_is_valid(lib_path)) {
       jv emsg = jv_invalid_get_msg(lib_path);
@@ -177,6 +191,7 @@ static int process_dependencies(jq_state *jq, jv jq_origin, jv lib_origin, block
       jv_free(deps);
       jv_free(jq_origin);
       jv_free(lib_origin);
+      jv_free(name);
       return 1;
     }
     uint64_t state_idx = 0;
@@ -194,17 +209,22 @@ static int process_dependencies(jq_state *jq, jv jq_origin, jv lib_origin, block
       jv_free(lib_path);
     } else { // Not found.   Add it to the table before binding.
       block dep_def_block = gen_noop();
-      nerrors += load_library(jq, lib_path, &dep_def_block, lib_state);
+      nerrors += load_library(jq, lib_path, jv_copy(dep), &dep_def_block, lib_state);
       if (nerrors == 0) {
         // XXX Check version matching here!
-        if (version_matches(jq, bk, dep_def_block))
+        if (version_matches(jq, bk, dep_def_block)) {
           bk = block_bind_library(dep_def_block, bk, OP_IS_CALL_PSEUDO, jv_string_value(as));
-        else
+          if (strcmp(jv_string_value(name), "jq") != 0) {
+            builtins_bind(jq, &bk);
+          }
+        } else {
           jq_report_error(jq, jv_string_fmt("jq: error: version mismatch for %s", jv_string_value(name)));
+        }
       }
     }
     jv_free(as);
   }
+  *src_block = bk;
   jv_free(lib_origin);
   jv_free(jq_origin);
   jv_free(deps);
@@ -213,11 +233,19 @@ static int process_dependencies(jq_state *jq, jv jq_origin, jv lib_origin, block
 
 // Loads the library at lib_path into lib_state, putting the library's defs
 // into *out_block
-static int load_library(jq_state *jq, jv lib_path, block *out_block, struct lib_loading_state *lib_state) {
+static int load_library(jq_state *jq, jv lib_path, jv dependency_info, block *out_block, struct lib_loading_state *lib_state) {
   int nerrors = 0;
   struct locfile* src;
   block program;
-  jv data = jv_load_file(jv_string_value(lib_path), 1);
+  jv data;
+  
+  if (strcmp(jv_string_value(lib_path), "jq") == 0) {
+    data = jq_builtins(jv_object_get(dependency_info, jv_string("version")));
+  } else {
+    data = jv_load_file(jv_string_value(lib_path), 1);
+    jv_free(dependency_info);
+  }
+
   int state_idx;
   if (jv_is_valid(data)) {
     src = locfile_init(jq, jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
@@ -228,6 +256,7 @@ static int load_library(jq_state *jq, jv lib_path, block *out_block, struct lib_
       lib_state->defs = realloc(lib_state->defs, lib_state->ct * sizeof(block));
       lib_state->names[state_idx] = strdup(jv_string_value(lib_path));
       lib_state->defs[state_idx] = program;
+
       char *lib_origin = strdup(jv_string_value(lib_path));
       nerrors += process_dependencies(jq, jq_get_jq_origin(jq),
                                       jv_string(dirname(lib_origin)),

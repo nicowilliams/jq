@@ -2,7 +2,8 @@
 
 LIBJQ_INCS = jq_parser.h builtin.h bytecode.h compile.h exec_stack.h	\
    libm.h jv_alloc.h jv_dtoa.h jv_unicode.h locfile.h		 	\
-   opcode_list.h parser.y jv_utf8_tables.h lexer.l util.h linker.h
+   opcode_list.h parser.y jv_utf8_tables.h lexer.l util.h linker.h	\
+   jq_builtins_latest.jq
 
 LIBJQ_SRC = locfile.c bytecode.c compile.c execute.c builtin.c jv.c	\
   jv_parse.c jv_print.c jv_dtoa.c jv_unicode.c jv_aux.c jv_file.c	\
@@ -20,10 +21,24 @@ ACLOCAL_AMFLAGS = -I config/m4
 
 # While there is some autoconf macro support for lex/flex, it doesn't support
 # header file creation so we'll use good old make
-BUILT_SOURCES = lexer.h lexer.c parser.h parser.c version.h
+BUILT_SOURCES = lexer.h lexer.c parser.h parser.c version.h jq_builtins.c
 lexer.c: lexer.l
 	$(AM_V_LEX) flex -o lexer.c --header-file=lexer.h $<
 lexer.h: lexer.c
+
+jq_builtins.c: jq_builtins_latest
+	( 							\
+	for i in $<; do 					\
+	echo "char $$i[] =";					\
+	sed -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/"/' < "$$i";	\
+	echo ";";						\
+	done;							\
+	echo "struct jq_builtin_ver jq_builtins_all[] = {";	\
+	for i in $<; do 					\
+	echo "{JQ_STRINGIFY($$i), $$i},";			\
+	done;							\
+	echo "};"						\
+	) > $@
 
 # Tell YACC (bison) autoconf macros that you want a header file created.
 # If the --warnings=all fails, you probably have an old version of bison

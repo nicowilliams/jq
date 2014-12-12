@@ -947,7 +947,7 @@ static block bind_bytecoded_builtins(block b) {
 
 #define LIBM_DD(name) "def " #name ": _" #name ";",
 
-static const char* const jq_builtins[] = {
+static const char* const old_jq_builtins[] = {
   "def break: error(\"break\");",
   "def map(f): [.[] | f];",
   "def select(f): if f then . else empty end;",
@@ -1106,7 +1106,7 @@ static const char* const jq_builtins[] = {
   "  | length as $length"
   "  | reduce range(0; $max) as $j"
   "      ([]; . + [reduce range(0;$length) as $i ([]; . + [ $in[$i][$j] ] )] )"
-	      "  end;",
+  "  end;",
 };
 #undef LIBM_DD
 
@@ -1144,8 +1144,8 @@ int builtins_bind(jq_state *jq, block* bb) {
     block_free(*bb);
     return nerrors;
   }
-  for (int i=(int)(sizeof(jq_builtins)/sizeof(jq_builtins[0]))-1; i>=0; i--) {
-    nerrors = builtins_bind_one(jq, bb, jq_builtins[i]);
+  for (int i=(int)(sizeof(old_jq_builtins)/sizeof(old_jq_builtins[0]))-1; i>=0; i--) {
+    nerrors = builtins_bind_one(jq, bb, old_jq_builtins[i]);
     assert(!nerrors);
   }
   *bb = bind_bytecoded_builtins(*bb);
