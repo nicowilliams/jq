@@ -171,3 +171,13 @@ if [ -n "$VALGRIND" ] && ! grep 'ERROR SUMMARY: 0 errors from 0 contexts' $d/out
     cat $d/out
     exit 1
 fi
+
+if $VALGRIND ./jq -ner -L $mods -f $mods/test_bind_order.jq > $d/out 2>&1
+    echo "Import bind order is broken" 1>&2
+    exit 1
+fi
+if [ -n "$VALGRIND" ] && ! grep 'ERROR SUMMARY: 0 errors from 0 contexts' $d/out > /dev/null; then
+    echo "Memory errors when programs have syntax errors" 1>&2
+    cat $d/out
+    exit 1
+fi
