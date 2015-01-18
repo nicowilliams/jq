@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "compile.h"
 #include "jv.h"
 #include "jq.h"
@@ -421,11 +422,38 @@ int main(int argc, char* argv[]) {
       ret = 2;
       goto out;
     }
-    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string(dirname(program_origin))));
+
+    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jq_realpath(jv_string(program_origin)));
+
+    // If the input is a device or process information pseudo-filesystem, use $PWD as PROGRAM_ORIGIN.
+    // TODO: check if/how this affects those who use `mkfifo` named pipes (S_ISFIFO(st.st_mode) == 0).
+    struct stat st;
+    int stat_ret;
+    stat_ret = stat(program_origin, &st);
+    int is_actual_file;
+
+#ifndef WIN32
+    is_actual_file = stat_ret >= 0
+      && strncmp("/dev/", program_origin, sizeof("/dev/")-1) != 0
+      && strncmp("/proc/", program_origin, sizeof("/proc/")-1) != 0;
+#else
+    is_actual_file = stat_ret >= 0;
+#endif
+
+    if (is_actual_file) {
+      jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_true());
+      jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string(dirname(program_origin))));
+    } else {
+      jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_false());
+      jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string("."))); // XXX is this good?
+    }
+
     compiled = jq_compile_args(jq, jv_string_value(data), program_arguments);
     free(program_origin);
     jv_free(data);
   } else {
+    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jv_null());
+    jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_false());
     jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string("."))); // XXX is this good?
     compiled = jq_compile_args(jq, program, program_arguments);
   }
