@@ -171,6 +171,7 @@ int main(int argc, char* argv[]) {
     ret = 2;
     goto out;
   }
+  jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string(".")));
 
   const char* program = 0;
 
@@ -407,14 +408,20 @@ int main(int argc, char* argv[]) {
 
   if (!program) usage(2);
 
+  jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jv_null());
+  jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_false());
+
+  jv data = jv_invalid();
+  char *program_origin = NULL;
   if (options & FROM_FILE) {
-    char *program_origin = strdup(program);
+    program_origin = strdup(program);
     if (program_origin == NULL) {
       perror("malloc");
       exit(2);
     }
 
-    jv data = jv_load_file(program, 1);
+    // XXX What about "jq -f -"?  That'd be nice.
+    data = jv_load_file(program, 1);
     if (!jv_is_valid(data)) {
       data = jv_invalid_get_msg(data);
       fprintf(stderr, "%s: %s\n", progname, jv_string_value(data));
@@ -422,41 +429,26 @@ int main(int argc, char* argv[]) {
       ret = 2;
       goto out;
     }
-
-    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jq_realpath(jv_string(program_origin)));
-
-    // If the input is a device or process information pseudo-filesystem, use $PWD as PROGRAM_ORIGIN.
-    // TODO: check if/how this affects those who use `mkfifo` named pipes (S_ISFIFO(st.st_mode) == 0).
-    struct stat st;
-    int stat_ret;
-    stat_ret = stat(program_origin, &st);
-    int is_actual_file;
+    program = jv_string_value(data);
 
 #ifndef WIN32
-    is_actual_file = stat_ret >= 0
-      && strncmp("/dev/", program_origin, sizeof("/dev/")-1) != 0
-      && strncmp("/proc/", program_origin, sizeof("/proc/")-1) != 0;
-#else
-    is_actual_file = stat_ret >= 0;
+    // We should also handle "-f -", but for now we don't
+    if (strncmp(program, "/dev/", sizeof("/dev/")-1) != 0 &&
+        strncmp(program, "/proc/", sizeof("/proc/")-1) != 0)
+      options &= ~(FROM_FILE);
 #endif
-
-    if (is_actual_file) {
-      jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_true());
-      jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string(dirname(program_origin))));
-    } else {
-      jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_false());
-      jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string("."))); // XXX is this good?
-    }
-
-    compiled = jq_compile_args(jq, jv_string_value(data), program_arguments);
-    free(program_origin);
-    jv_free(data);
-  } else {
-    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jv_null());
-    jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_false());
-    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string("."))); // XXX is this good?
-    compiled = jq_compile_args(jq, program, program_arguments);
   }
+
+  if (options & FROM_FILE) {
+    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN_FILE"), jq_realpath(jv_string(program_origin)));
+    jq_set_attr(jq, jv_string("PROGRAM_FROM_ACTUAL_FILE"), jv_true());
+    jq_set_attr(jq, jv_string("PROGRAM_ORIGIN"), jq_realpath(jv_string(dirname(program_origin))));
+  }
+  free(program_origin);
+
+  compiled = jq_compile_args(jq, program, program_arguments);
+  jv_free(data);
+  program = NULL;
   if (!compiled){
     ret = 3;
     goto out;
