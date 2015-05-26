@@ -93,111 +93,37 @@ jv get_home() {
   return ret;
 }
 
-int is_unc_path(char *path) {
-  return strlen(path) >= 2 && strncmp("\\\\", path, sizeof("\\\\")-1) == 0;
-}
-
-int is_filesystem_root_directory(char *path) {
-  // Unix file system root.
-  return strcmp(path, "/") == 0
-    // Windows disk/file system roots such as "C:\".
-    || (strlen(path) == 3 && strcmp(path+1, ":\\") == 0);
-}
-
-
-int is_package_root_stop_directory(char *path) {
-  jv home;
-
-  if (is_filesystem_root_directory(path)) {
-    return 1;
-  }
-
-  // TODO: memoize/cache get_home() results (in a shared scope) per execution?
-  home = get_home();
-
-  if (jv_is_valid(home) && strcmp(jv_string_value(home), path)) {
-    jv_free(home);
-    return 1;
-  }
-
-  jv_free(home);
-  return 0;
-}
-
-jv jq_find_package_root(jv start_path) {
-  // TODO: keep the string ".jq" elsewhere.
-  jv jq_metadata_subfolder = jv_string(".jq");
-  char *current_path = strdup(jv_string_value(start_path));
+jv jq_find_package_root(jv program_path) {
+  char *current_path = jv_mem_strdup(jv_string_value(program_path));
+  size_t len;
+  jv dot_jq_dir = jv_invalid();
+  jv home = get_home();
   struct stat st;
-  int stat_ret;
-  int dirname_calls = 0;
   int done = 0;
-  jv ret;
 
-  if (is_unc_path(current_path)) {
-    ret = jv_invalid_with_msg(jv_string_fmt("Uniform Naming Convention (UNC) package root start path not allowed '%s'", jv_string_value(start_path)));
-    free(current_path);
-    jv_free(jq_metadata_subfolder);
-    return ret;
-  }
+  const char *homedir = jv_is_valid(home) ? jv_string_value(home) : "";
 
-  stat_ret = stat(current_path, &st);
+  jv_free(program_path);
+  for (; !done;) {
+    // When len no longer gets smaller, we've reached the root
+    len = strlen(current_path);
+    dirname(current_path);
 
-  if (stat_ret < 0) {
-    ret = jv_invalid_with_msg(jv_string_fmt("Could not find package root from non-existent start path '%s' ('%s')", jv_string_value(start_path), jv_string_value(jq_realpath(start_path))));
-    free(current_path);
-    jv_free(jq_metadata_subfolder);
-    return ret;
-  }
-
-  if (S_ISDIR(st.st_mode) == 0) {
-    // Get parent folder path. (These following lines have been duplicated elsewhere in this function.)
-    char *tmp_path = dirname(current_path);
-    dirname_calls++;
-    if (dirname_calls == 1) {
-      // Both dirname() and basename() return pointers to null-terminated strings. (Do not pass these pointers to free(3).)
-      // This means free(current_path) should only be called before being replaced for the first time, and never on tmp_path.
-      free(current_path);
-    }
-    current_path = tmp_path;
-  }
-
-  do {
-    if (is_filesystem_root_directory(current_path)) {
-      break;
-    }
+    // Note that homedir must not end in a '/' or '\\'...
+    if (strlen(current_path) == len || strcmp(current_path, homedir) == 0)
+      done = 1;
 
     // Check if ${current or parent dir}/.jq/ directory exists.
-    jv jq_metadata_subfolder_path = jv_string_fmt("%s%s%s",
-                                               current_path,
-                                               // TODO: detect windows disk/file system roots such as "C:\".
-                                               "/",
-                                               jv_string_value(jq_metadata_subfolder));
-    stat_ret = stat(jv_string_value(jq_metadata_subfolder_path), &st);
-    jv_free(jq_metadata_subfolder_path);
-    if (stat_ret == 0 && S_ISDIR(st.st_mode) != 0) {
-      // Package root found.
-      done = 1;
-      ret = jv_string(current_path);
-    } else {
-      // Get parent folder path. (These following lines have been duplicated elsewhere in this function.)
-      char *tmp_path = dirname(current_path);
-      dirname_calls++;
-      if (dirname_calls == 1) {
-        // Both dirname() and basename() return pointers to null-terminated strings. (Do not pass these pointers to free(3).)
-        // This means free(current_path) should only be called before being replaced for the first time, and never on tmp_path.
-        free(current_path);
-      }
-      current_path = tmp_path;
+    jv_free(dot_jq_dir);
+    dot_jq_dir = jv_string_fmt("%s%s", current_path, "/.jq");
+    if (stat(jv_string_value(dot_jq_dir), &st) == 0) {
+      jv_free(home);
+      return dot_jq_dir;
     }
-  } while(done != 1);
-
-  if (jv_get_kind(ret) != JV_KIND_STRING) {
-    ret = jv_invalid_with_msg(jv_string_fmt("Could not find package root from start path '%s' ('%s')", jv_string_value(start_path), jv_string_value(jq_realpath(start_path))));
   }
-
-  jv_free(jq_metadata_subfolder);
-  return ret;
+  jv_free(dot_jq_dir);
+  jv_free(home);
+  return jv_invalid();
 }
 
 jv jq_realpath(jv path) {
