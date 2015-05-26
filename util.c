@@ -104,21 +104,32 @@ jv jq_find_package_root(jv program_path) {
   const char *homedir = jv_is_valid(home) ? jv_string_value(home) : "";
 
   jv_free(program_path);
+
+  // Check if ${current}/.jq/ directory exists.
+  jv_free(dot_jq_dir);
+  dot_jq_dir = jv_string_fmt("%s%s", current_path, "/.jq");
+  if (stat(jv_string_value(dot_jq_dir), &st) == 0) {
+    jv_free(dot_jq_dir);
+    jv_free(home);
+    return jv_string(strdup(current_path));
+  }
+
   for (; !done;) {
     // When len no longer gets smaller, we've reached the root
     len = strlen(current_path);
-    dirname(current_path);
+    current_path = dirname(current_path);
 
     // Note that homedir must not end in a '/' or '\\'...
     if (strlen(current_path) == len || strcmp(current_path, homedir) == 0)
       done = 1;
 
-    // Check if ${current or parent dir}/.jq/ directory exists.
+    // Check if ${parent dir}/.jq/ directory exists.
     jv_free(dot_jq_dir);
     dot_jq_dir = jv_string_fmt("%s%s", current_path, "/.jq");
     if (stat(jv_string_value(dot_jq_dir), &st) == 0) {
+      jv_free(dot_jq_dir);
       jv_free(home);
-      return dot_jq_dir;
+      return jv_string(strdup(current_path));
     }
   }
   jv_free(dot_jq_dir);
