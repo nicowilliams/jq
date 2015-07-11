@@ -105,6 +105,7 @@ struct lexer_param;
 %precedence '?'
 %precedence "try"
 %precedence "catch"
+%precedence ':'
 
 
 %type <blk> Exp Term MkDict MkDictPair ExpD ElseBody QQString
@@ -345,6 +346,10 @@ Term "as" Pattern '|' Exp {
 "try" Exp "catch" error {
   FAIL(@$, "Possibly unterminated 'try' statement");
   $$ = $2;
+} |
+
+Exp '?' Exp ':' Exp {
+  $$ = block_join(gen_try($1, gen_try_handler($5)),$3);
 } |
 
 "label" '$' IDENT '|' Exp {
