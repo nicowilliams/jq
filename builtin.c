@@ -1004,6 +1004,16 @@ static jv f_debug(jq_state *jq, jv input) {
   return input;
 }
 
+static jv f_output(jq_state *jq, jv input) {
+  jq_output_cb cb;
+  void *data;
+  jq_get_output_cb(jq, &cb, &data);
+  jv res;
+  if (cb == NULL)
+    return JV_FREE_AFTER(res, jv_invalid_with_msg(jv_string("No output method available")), input);
+  return JV_FREE_AFTER(res, cb(jq, data, jv_copy(input)), input);
+}
+
 static jv f_stderr(jq_state *jq, jv input) {
   jv_dumpf(jv_copy(input), stderr, 0);
   fprintf(stderr, "\n");
@@ -1296,6 +1306,7 @@ static const struct cfunction function_list[] = {
   {(cfunction_ptr)f_modulemeta, "modulemeta", 1},
   {(cfunction_ptr)f_input, "_input", 1},
   {(cfunction_ptr)f_debug, "debug", 1},
+  {(cfunction_ptr)f_output, "output", 1},
   {(cfunction_ptr)f_stderr, "stderr", 1},
   {(cfunction_ptr)f_strptime, "strptime", 2},
   {(cfunction_ptr)f_strftime, "strftime", 2},

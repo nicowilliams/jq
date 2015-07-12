@@ -2501,14 +2501,15 @@ sections:
       form of control over when inputs are read.  Two builtins functions
       are provided for this, `input` and `inputs`, that read from the
       same sources (e.g., `stdin`, files named on the command-line) as
-      jq itself.  These two builtins, and jq's own reading actions, can
-      be interleaved with each other.
+      jq itself.  These two builtins are available only when the `-n`
+      option is used.
 
-      One builtin provides minimal output capabilities, `debug`.
-      (Recall that a jq program's output values are always output as
-      JSON texts on `stdout`.)  The `debug` builtin can have
-      application-specific behavior, such as for executables that use
-      the libjq C API but aren't the jq executable itself.
+      Two builtins provide minimal output capabilities, `debug`, and
+      `output`.  The `debug` builtin can have application-specific
+      behavior, such as for executables that use the libjq C API but
+      aren't the jq executable itself.  The `output` builtin outputs any
+      input strings to the standard output location (`stdout`), but is
+      only available when the `-N` command-line option is given.
 
     entries:
       - title: "`input`"
@@ -2523,6 +2524,11 @@ sections:
 
           This is primarily useful for reductions over a program's
           inputs.
+
+      - title: "`output`"
+        body: |
+
+          Prints any input strings on `stdout`.
 
       - title: "`debug`"
         body: |

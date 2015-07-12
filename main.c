@@ -113,18 +113,23 @@ enum {
   EXIT_STATUS           = 4096,
   SEQ                   = 8192,
   RUN_TESTS             = 16384,
+  PROVIDE_NULL_OUTPUT   = 32768,
   /* debugging only */
-  DUMP_DISASM           = 32768,
+  DUMP_DISASM           = 65536,
 };
 static int options = 0;
 
-static int process(jq_state *jq, jv value, int flags, int dumpopts) {
+static int process(jq_state *jq, jv value, int flags, int dumpopts, int no_output) {
   int ret = 14; // No valid results && -e -> exit(4)
   jq_start(jq, value, flags);
   jv result;
   while (jv_is_valid(result = jq_next(jq))) {
+    if (no_output) {
+      result = jv_invalid_with_msg(jv_string("Unexpected output value (-N option given)"));
+      break;
+    }
     if ((options & RAW_OUTPUT) && jv_get_kind(result) == JV_KIND_STRING) {
-      fwrite(jv_string_value(result), 1, jv_string_length_bytes(jv_copy(result)), stdout);
+      priv_fwrite(jv_string_value(result), jv_string_length_bytes(jv_copy(result)), stdout, dumpopts & JV_PRINT_ISATTY);
       ret = 0;
       jv_free(result);
     } else {
@@ -146,8 +151,12 @@ static int process(jq_state *jq, jv value, int flags, int dumpopts) {
     jv msg = jv_invalid_get_msg(jv_copy(result));
     jv input_pos = jq_util_input_get_position(jq);
     if (jv_get_kind(msg) == JV_KIND_STRING) {
-      fprintf(stderr, "jq: error (at %s): %s\n",
-              jv_string_value(input_pos), jv_string_value(msg));
+      if (jv_is_valid(input_pos)) {
+        fprintf(stderr, "jq: error (at %s): %s\n",
+                jv_string_value(input_pos), jv_string_value(msg));
+      } else {
+        fprintf(stderr, "jq: error: %s\n", jv_string_value(msg));
+      }
     } else {
       msg = jv_dump_string(msg, 0);
       fprintf(stderr, "jq: error (at %s) (not a string): %s\n",
@@ -159,6 +168,20 @@ static int process(jq_state *jq, jv value, int flags, int dumpopts) {
   }
   jv_free(result);
   return ret;
+}
+
+static jv output_cb(jq_state *jq, void *data, jv input) {
+  FILE *f = data;
+
+  if (!jv_is_valid(input))
+    return input;
+  if (jv_get_kind(input) != JV_KIND_STRING) {
+    jv_free(input);
+    return jv_invalid_with_msg(jv_string("The 'output' builtin only supports string outputs"));
+  }
+  priv_fwrite(jv_string_value(input), jv_string_length_bytes(jv_copy(input)), f, 0);
+  jv_free(input);
+  return jv_invalid(); // Causes `output` to backtrack
 }
 
 static void debug_cb(void *data, jv input) {
@@ -281,6 +304,10 @@ int main(int argc, char* argv[]) {
       }
       if (isoption(argv[i], 'n', "null-input", &short_opts)) {
         options |= PROVIDE_NULL;
+        if (!short_opts) continue;
+      }
+      if (isoption(argv[i], 'N', "null-output", &short_opts)) {
+        options |= PROVIDE_NULL_OUTPUT;
         if (!short_opts) continue;
       }
       if (isoption(argv[i], 'f', "from-file", &short_opts)) {
@@ -511,8 +538,15 @@ int main(int argc, char* argv[]) {
   else
     jq_util_input_set_parser(input_state, jv_parser_new(parser_flags), (options & SLURP) ? 1 : 0);
 
-  // Let jq program read from inputs
-  jq_set_input_cb(jq, jq_util_input_next_input_cb, input_state);
+  if (options & PROVIDE_NULL) {
+    // Let jq program read from inputs when -n is given
+    jq_set_input_cb(jq, jq_util_input_next_input_cb, input_state);
+  }
+
+  if (options & PROVIDE_NULL_OUTPUT) {
+    // Let jq program write to stdout directly
+    jq_set_output_cb(jq, output_cb, stdout);
+  }
 
   // Let jq program call `debug` builtin and have that go somewhere
   jq_set_debug_cb(jq, debug_cb, &dumpopts);
@@ -521,13 +555,13 @@ int main(int argc, char* argv[]) {
     jq_util_input_add_input(input_state, "-");
 
   if (options & PROVIDE_NULL) {
-    ret = process(jq, jv_null(), jq_flags, dumpopts);
+    ret = process(jq, jv_null(), jq_flags, dumpopts, (options & PROVIDE_NULL_OUTPUT));
   } else {
     jv value;
     while (jq_util_input_errors(input_state) == 0 &&
            (jv_is_valid((value = jq_util_input_next_input(input_state))) || jv_invalid_has_msg(jv_copy(value)))) {
       if (jv_is_valid(value)) {
-        ret = process(jq, value, jq_flags, dumpopts);
+        ret = process(jq, value, jq_flags, dumpopts, (options & PROVIDE_NULL_OUTPUT));
         continue;
       }
 

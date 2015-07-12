@@ -93,6 +93,16 @@ jv jv_array_indexes(jv, jv);
 #define JV_ARRAY(...) \
   JV_ARRAY_IDX(__VA_ARGS__, JV_ARRAY_9, JV_ARRAY_8, JV_ARRAY_7, JV_ARRAY_6, JV_ARRAY_5, JV_ARRAY_4, JV_ARRAY_3, JV_ARRAY_2, JV_ARRAY_1)(__VA_ARGS__)
 
+#define JV_FREE_1(v0) (jv_free(v0))
+#define JV_FREE_2(v0,v1) (JV_FREE_1(v0),jv_free(v1))
+#define JV_FREE_3(v0,v1,v2) (JV_FREE_2(v0,v1),jv_free(v2))
+#define JV_FREE_4(v0,v1,v2,v3) (JV_FREE_3(v0,v1,v2),jv_free(v3))
+#define JV_FREE_IDX(_1,_2,_3,_4,NAME,...) NAME
+#define JV_FREE(...) \
+  JV_FREE_IDX(__VA_ARGS__, JV_FREE_4, JV_FREE_3, JV_FREE_2, JV_FREE_1)(__VA_ARGS__)
+#define JV_FREE_AFTER(r,exp,...) \
+  (((r)=(exp)),JV_FREE(__VA_ARGS__),(r))
+
 #ifdef __GNUC__
 #define JV_PRINTF_LIKE(fmt_arg_num, args_num) \
   __attribute__ ((__format__( __printf__, fmt_arg_num, args_num)))

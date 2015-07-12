@@ -42,6 +42,8 @@ struct jq_state {
   jv attrs;
   jq_input_cb input_cb;
   void *input_cb_data;
+  jq_output_cb output_cb;
+  void *output_cb_data;
   jq_msg_cb debug_cb;
   void *debug_cb_data;
 };
@@ -851,6 +853,15 @@ jv jq_format_error(jv msg) {
   return jq_format_error(jv_invalid_get_msg(msg));
 }
 
+static jv default_input_cb(jq_state *jq, void *data) {
+  return jv_invalid_with_msg(jv_string("No input method available"));
+}
+
+static jv default_output_cb(jq_state *jq, void *data, jv value) {
+  jv_free(value);
+  return jv_invalid_with_msg(jv_string("No output method available"));
+}
+
 // XXX Refactor into a utility function that returns a jv and one that
 // uses it and then prints that jv's string as the complete error
 // message.
@@ -874,6 +885,9 @@ jq_state *jq_init(void) {
   jq->fork_top = 0;
   jq->curr_frame = 0;
   jq->error = jv_null();
+
+  jq->input_cb = default_input_cb;
+  jq->input_cb_data = NULL;
 
   jq->err_cb = default_err_cb;
   jq->err_cb_data = stderr;
@@ -1084,6 +1098,16 @@ void jq_set_input_cb(jq_state *jq, jq_input_cb cb, void *data) {
 void jq_get_input_cb(jq_state *jq, jq_input_cb *cb, void **data) {
   *cb = jq->input_cb;
   *data = jq->input_cb_data;
+}
+
+void jq_set_output_cb(jq_state *jq, jq_output_cb cb, void *data) {
+  jq->output_cb = cb;
+  jq->output_cb_data = data;
+}
+
+void jq_get_output_cb(jq_state *jq, jq_output_cb *cb, void **data) {
+  *cb = jq->output_cb;
+  *data = jq->output_cb_data;
 }
 
 void jq_set_debug_cb(jq_state *jq, jq_msg_cb cb, void *data) {
