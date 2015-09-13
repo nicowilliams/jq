@@ -120,23 +120,32 @@ static jv validate_relpath(jv name) {
   return rp;
 }
 
-// Assumes name has been validated
-static jv jv_basename(jv name) {
-  const char *s = jv_string_value(name);
-  const char *p = strrchr(s, '/');
-  if (!p)
-    return name;
-  jv res = jv_string_fmt("%s", p);
+static jv jv_dirname(jv name) {
+  char *s = jv_mem_strdup(jv_string_value(name));
   jv_free(name);
-  return res;
+  jv r = jv_string(dirname(s));
+  jv_mem_free(s);
+  return r;
+}
+static jv jv_basename(jv name) {
+  char *s = jv_mem_strdup(jv_string_value(name));
+  jv_free(name);
+  jv r = jv_string(basename(s));
+  jv_mem_free(s);
+  return r;
 }
 
 // Asummes validated relative path to module
 static jv find_lib(jq_state *jq, jv rel_path, jv search, const char *suffix, jv jq_origin, jv lib_origin) {
-  if (jv_get_kind(search) != JV_KIND_ARRAY)
-    return jv_invalid_with_msg(jv_string_fmt("Module search path must be an array"));
   if (jv_get_kind(rel_path) != JV_KIND_STRING)
     return jv_invalid_with_msg(jv_string_fmt("Module path must be a string"));
+
+  // Builtin modules are treated specially
+  if (jv_equal(jv_dirname(rel_path), jv_string("jq")))
+    return rel_path;
+
+  if (jv_get_kind(search) != JV_KIND_ARRAY)
+    return jv_invalid_with_msg(jv_string_fmt("Module search path must be an array"));
 
   struct stat st;
   int ret;
@@ -145,6 +154,7 @@ static jv find_lib(jq_state *jq, jv rel_path, jv search, const char *suffix, jv 
   search = build_lib_search_chain(jq, search, jq_origin, lib_origin);
   jv err = jv_array_get(jv_copy(search), 1);
   search = jv_array_get(search, 0);
+
 
   jv bname = jv_basename(jv_copy(rel_path));
 
@@ -312,11 +322,11 @@ static int load_library(jq_state *jq, jv lib_path, int is_data, int raw, const c
     src = locfile_init(jq, jv_string_value(lib_path), jv_string_value(data), jv_string_length_bytes(jv_copy(data)));
     nerrors += jq_parse_library(src, &program);
     if (nerrors == 0) {
-      char *lib_origin = strdup(jv_string_value(lib_path));
+      char *lib_origin = jv_mem_strdup(jv_string_value(lib_path));
       nerrors += process_dependencies(jq, jq_get_jq_origin(jq),
                                       jv_string(dirname(lib_origin)),
                                       &program, lib_state);
-      free(lib_origin);
+      jv_mem_free(lib_origin);
     }
   }
   state_idx = lib_state->ct++;
