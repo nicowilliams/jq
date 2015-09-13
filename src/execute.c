@@ -13,6 +13,7 @@
 #include "jq_parser.h"
 #include "locfile.h"
 #include "jv.h"
+#include "jv_dtoa.h"
 #include "jq.h"
 #include "parser.h"
 #include "builtin.h"
@@ -23,6 +24,8 @@ struct jq_state {
   void (*nomem_handler)(void *);
   void *nomem_handler_data;
   struct bytecode* bc;
+
+  struct dtoa_context C;
 
   jq_msg_cb err_cb;
   void *err_cb_data;
@@ -926,6 +929,8 @@ jq_state *jq_init(void) {
   jq->bc = 0;
   jq->next_label = 0;
 
+  jvp_dtoa_context_init(&jq->C);
+
   stack_init(&jq->stk);
   jq->stk_top = 0;
   jq->fork_top = 0;
@@ -989,6 +994,7 @@ void jq_teardown(jq_state **jq) {
   *jq = NULL;
 
   jq_reset(old_jq);
+  jvp_dtoa_context_free(&old_jq->C);
   bytecode_free(old_jq->bc);
   old_jq->bc = 0;
   jv_free(old_jq->attrs);
@@ -1152,4 +1158,36 @@ void jq_set_debug_cb(jq_state *jq, jq_msg_cb cb, void *data) {
 void jq_get_debug_cb(jq_state *jq, jq_msg_cb *cb, void **data) {
   *cb = jq->debug_cb;
   *data = jq->debug_cb_data;
+}
+
+void _jv_dump_term(struct dtoa_context *C, jv x, int flags, int indent, FILE *F, jv *S);
+
+void jq_dumpf(jq_state *jq, jv x, FILE *f, int flags) {
+  _jv_dump_term(&jq->C, x, flags, 0, f, 0);
+}
+
+void jq_dump(jq_state *jq, jv x, int flags) {
+  jv_dumpf(x, stdout, flags);
+}
+
+jv jq_dump_string(jq_state *jq, jv x, int flags) {
+  jv s = jv_string("");
+  _jv_dump_term(&jq->C, x, flags, 0, 0, &s);
+  return s;
+}
+
+char *jq_dump_string_trunc(jq_state *jq, jv x, char *outbuf, size_t bufsize) {
+  x = jv_dump_string(x,0);
+  const char* p = jv_string_value(x);
+  const size_t len = strlen(p);
+  strncpy(outbuf, p, bufsize);
+  outbuf[bufsize - 1] = 0;
+  if (len > bufsize - 1 && bufsize >= 4) {
+    // Indicate truncation with '...'
+    outbuf[bufsize - 2]='.';
+    outbuf[bufsize - 3]='.';
+    outbuf[bufsize - 4]='.';
+  }
+  jv_free(x);
+  return outbuf;
 }

@@ -134,7 +134,7 @@ static int process(jq_state *jq, jv value, int flags, int dumpopts) {
         ret = 0;
       if (options & SEQ)
         priv_fwrite("\036", 1, stdout, dumpopts & JV_PRINT_ISATTY);
-      jv_dump(result, dumpopts);
+      jq_dump(jq, result, dumpopts);
     }
     if (!(options & RAW_NO_LF))
       priv_fwrite("\n", 1, stdout, dumpopts & JV_PRINT_ISATTY);
@@ -149,7 +149,7 @@ static int process(jq_state *jq, jv value, int flags, int dumpopts) {
       fprintf(stderr, "jq: error (at %s): %s\n",
               jv_string_value(input_pos), jv_string_value(msg));
     } else {
-      msg = jv_dump_string(msg, 0);
+      msg = jq_dump_string(jq, msg, 0);
       fprintf(stderr, "jq: error (at %s) (not a string): %s\n",
               jv_string_value(input_pos), jv_string_value(msg));
     }

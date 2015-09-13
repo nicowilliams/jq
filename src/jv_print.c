@@ -137,7 +137,7 @@ static void put_refcnt(struct dtoa_context* C, int refcnt, FILE *F, jv* S, int T
   put_char(')', F, S, T);
 }
 
-static void jv_dump_term(struct dtoa_context* C, jv x, int flags, int indent, FILE* F, jv* S) {
+void _jv_dump_term(struct dtoa_context* C, jv x, int flags, int indent, FILE* F, jv* S) {
   char buf[JVP_DTOA_FMT_MAX_LEN];
   const char* color = 0;
   double refcnt = (flags & JV_PRINT_REFCOUNT) ? jv_get_refcnt(x) - 1 : -1;
@@ -212,7 +212,7 @@ static void jv_dump_term(struct dtoa_context* C, jv x, int flags, int indent, FI
           put_str(",", F, S, flags & JV_PRINT_ISATTY);
         }
       }
-      jv_dump_term(C, elem, flags, indent + 1, F, S);
+      _jv_dump_term(C, elem, flags, indent + 1, F, S);
       if (color) put_str(color, F, S, flags & JV_PRINT_ISATTY);
     }
     if (flags & JV_PRINT_PRETTY) {
@@ -284,7 +284,7 @@ static void jv_dump_term(struct dtoa_context* C, jv x, int flags, int indent, FI
       put_str((flags & JV_PRINT_PRETTY) ? ": " : ":", F, S, flags & JV_PRINT_ISATTY);
       if (color) put_str(COLRESET, F, S, flags & JV_PRINT_ISATTY);
 
-      jv_dump_term(C, value, flags, indent + 1, F, S);
+      _jv_dump_term(C, value, flags, indent + 1, F, S);
       if (color) put_str(color, F, S, flags & JV_PRINT_ISATTY);
     }
     if (flags & JV_PRINT_PRETTY) {
@@ -306,7 +306,7 @@ static void jv_dump_term(struct dtoa_context* C, jv x, int flags, int indent, FI
 void jv_dumpf(jv x, FILE *f, int flags) {
   struct dtoa_context C;
   jvp_dtoa_context_init(&C);
-  jv_dump_term(&C, x, flags, 0, f, 0);
+  _jv_dump_term(&C, x, flags, 0, f, 0);
   jvp_dtoa_context_free(&C);
 }
 
@@ -326,7 +326,7 @@ jv jv_dump_string(jv x, int flags) {
   struct dtoa_context C;
   jvp_dtoa_context_init(&C);
   jv s = jv_string("");
-  jv_dump_term(&C, x, flags, 0, 0, &s);
+  _jv_dump_term(&C, x, flags, 0, 0, &s);
   jvp_dtoa_context_free(&C);
   return s;
 }

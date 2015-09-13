@@ -37,8 +37,14 @@ jv jq_get_lib_dirs(jq_state *);
 void jq_set_attr(jq_state *, jv, jv);
 jv jq_get_attr(jq_state *, jv);
 
+void jq_dumpf(jq_state *, jv x, FILE *f, int flags);
+void jq_dump(jq_state *, jv x, int flags);
+void jq_show(jq_state *, jv x, int flags);
+jv jq_dump_string(jq_state *, jv x, int flags);
+char *jq_dump_string_trunc(jq_state *, jv x, char *outbuf, size_t bufsize);
+
 /*
- * We use char * instead of jf for filenames here because filenames
+ * We use char * instead of jv for filenames here because filenames
  * should be in the process' locale's codeset, which may not be UTF-8,
  * whereas jv string values must be in UTF-8.  This way the caller
  * doesn't have to perform any codeset conversions.
