@@ -300,11 +300,16 @@ static int load_library(jq_state *jq, jv lib_path, int is_data, int raw, const c
   int nerrors = 0;
   struct locfile* src = NULL;
   block program;
-  jv data;
-  if (is_data && !raw)
-    data = jv_load_file(jv_string_value(lib_path), 0);
-  else
-    data = jv_load_file(jv_string_value(lib_path), 1);
+  jv data = jv_null();
+  if (jv_equal(jv_dirname(jv_copy(lib_path)), jv_string("jq"))) {
+    data = jv_string(builtin_module(jv_copy(lib_path)));
+  } else {
+    if (is_data && !raw)
+      data = jv_load_file(jv_string_value(lib_path), 0);
+    else
+      data = jv_load_file(jv_string_value(lib_path), 1);
+    }
+  }
   int state_idx;
   if (!jv_is_valid(data)) {
     if (jv_invalid_has_msg(jv_copy(data)))

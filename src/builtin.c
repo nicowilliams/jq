@@ -1699,3 +1699,14 @@ int builtins_bind(jq_state *jq, block* bb) {
   *bb = gen_cbinding(function_list, sizeof(function_list)/sizeof(function_list[0]), *bb);
   return nerrors;
 }
+
+const char *builtin_module(jv module) {
+  const char *k = jv_string_value(module);
+  size_t i;
+
+  for (i = 0; i < sizeof(builtin_modules)/sizeof(builtin_modules[0]); i++) {
+    if (strcmp(k, builtin_modules[i].name) == 0)
+      return builtin_modules[i].source;
+  }
+  return NULL;
+}
