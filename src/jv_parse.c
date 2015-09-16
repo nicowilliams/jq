@@ -42,6 +42,7 @@ struct jv_parser {
   jv path;                     // streamer
   enum last_seen last_seen;    // streamer
   jv output;                   // streamer
+  jv reuse;                    // streamer
   jv next;                     // both
 
   char* tokenbuf;
@@ -74,6 +75,7 @@ static void parser_init(struct jv_parser* p, int flags) {
   p->stacklen = p->stackpos = 0;
   p->last_seen = JV_LAST_NONE;
   p->output = jv_invalid();
+  p->reuse = JV_ARRAY(jv_null(), jv_null());
   p->next = jv_invalid();
   p->tokenbuf = 0;
   p->tokenlen = p->tokenpos = 0;
@@ -96,10 +98,12 @@ static void parser_reset(struct jv_parser* p) {
     jv_free(p->path);
     p->path = jv_array();
     p->stacklen = 0;
+    if (jv_is_valid(p->output)) {
+      p->reuse = p->output;
+      p->output = jv_invalid();
+    }
   }
   p->last_seen = JV_LAST_NONE;
-  jv_free(p->output);
-  p->output = jv_invalid();
   jv_free(p->next);
   p->next = jv_invalid();
   for (int i=0; i<p->stackpos; i++)
@@ -113,6 +117,7 @@ static void parser_free(struct jv_parser* p) {
   parser_reset(p);
   jv_free(p->path);
   jv_free(p->output);
+  jv_free(p->reuse);
   jv_mem_free(p->stack);
   jv_mem_free(p->tokenbuf);
   jvp_dtoa_context_free(&p->dtoa);
@@ -227,6 +232,18 @@ static pfunc parse_token(struct jv_parser* p, char ch) {
   return 0;
 }
 
+static void stream_make_out(struct jv_parser* p, jv path, jv leaf, int closing) {
+  assert(jv_is_valid(p->reuse));
+  p->output = jv_array_slice(p->reuse, 0, 0);
+  p->reuse = jv_invalid();
+  p->output = jv_array_set(p->output, 0, path);
+  p->output = jv_array_set(p->output, 1, leaf);
+  if (closing)
+    p->output = jv_array_set(p->output, 2, jv_true());
+  else
+    p->output = jv_array_slice(p->output, 0, 1);
+}
+
 static pfunc stream_token(struct jv_parser* p, char ch) {
   jv_kind k;
   jv last;
@@ -274,14 +291,14 @@ static pfunc stream_token(struct jv_parser* p, char ch) {
       int idx = jv_number_value(last);
 
       if (jv_is_valid(p->next)) {
-        p->output = JV_ARRAY(jv_copy(p->path), p->next);
+        stream_make_out(p, jv_copy(p->path), p->next, 0);
         p->next = jv_invalid();
       }
       p->path = jv_array_set(p->path, p->stacklen - 1, jv_number(idx + 1));
       p->last_seen = JV_LAST_COMMA;
     } else if (k == JV_KIND_STRING) {
       if (jv_is_valid(p->next)) {
-        p->output = JV_ARRAY(jv_copy(p->path), p->next);
+        stream_make_out(p, jv_copy(p->path), p->next, 0);
         p->next = jv_invalid();
       }
       p->path = jv_array_set(p->path, p->stacklen - 1, jv_true()); // ready for another name:value pair
@@ -311,10 +328,10 @@ static pfunc stream_token(struct jv_parser* p, char ch) {
     if (k != JV_KIND_NUMBER)
       return "Unmatched ']' in the middle of an object";
     if (jv_is_valid(p->next)) {
-      p->output = JV_ARRAY(jv_copy(p->path), p->next, jv_true());
+      stream_make_out(p, jv_copy(p->path), p->next, 1);
       p->next = jv_invalid();
     } else if (p->last_seen != JV_LAST_OPEN_ARRAY) {
-      p->output = JV_ARRAY(jv_copy(p->path));
+      stream_make_out(p, jv_copy(p->path), jv_invalid(), 0);
     }
 
     p->path = jv_array_slice(p->path, 0, --(p->stacklen)); // pop
@@ -323,7 +340,7 @@ static pfunc stream_token(struct jv_parser* p, char ch) {
     p->next = jv_invalid();
 
     if (p->last_seen == JV_LAST_OPEN_ARRAY)
-      p->output = JV_ARRAY(jv_copy(p->path), jv_array()); // Empty arrays are leaves
+      stream_make_out(p, jv_copy(p->path), jv_array(), 0); // Empty arrays are leaves
 
     if (p->stacklen == 0)
       p->last_seen = JV_LAST_NONE;
@@ -348,7 +365,7 @@ static pfunc stream_token(struct jv_parser* p, char ch) {
     if (jv_is_valid(p->next)) {
       if (k != JV_KIND_STRING)
         return "Objects must consist of key:value pairs";
-      p->output = JV_ARRAY(jv_copy(p->path), p->next, jv_true());
+      stream_make_out(p, jv_copy(p->path), p->next, 1);
       p->next = jv_invalid();
     } else {
       // Perhaps {"a":[]}
@@ -363,14 +380,14 @@ static pfunc stream_token(struct jv_parser* p, char ch) {
       if (p->last_seen != JV_LAST_VALUE && p->last_seen != JV_LAST_OPEN_OBJECT)
         return "Unmatched '}'";
       if (p->last_seen != JV_LAST_OPEN_OBJECT)
-        p->output = JV_ARRAY(jv_copy(p->path));
+        stream_make_out(p, jv_copy(p->path), jv_invalid(), 0);
     }
     p->path = jv_array_slice(p->path, 0, --(p->stacklen)); // pop
     jv_free(p->next);
     p->next = jv_invalid();
 
     if (p->last_seen == JV_LAST_OPEN_OBJECT)
-      p->output = JV_ARRAY(jv_copy(p->path), jv_object()); // Empty arrays are leaves
+      stream_make_out(p, jv_copy(p->path), jv_object(), 0); // Empty objects are leaves
 
     if (p->stacklen == 0)
       p->last_seen = JV_LAST_NONE;
@@ -552,6 +569,7 @@ static int stream_check_done(struct jv_parser* p, jv* out) {
     } else {
       // No further processing needed
       *out = p->output;
+      p->reuse = jv_copy(p->output);
       p->output = jv_invalid();
     }
     return 1;
