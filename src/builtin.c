@@ -1057,6 +1057,68 @@ static jv f_explodes(jq_state *jq, void **data, jv input) {
   return f_explodes_step(jq, state);
 }
 
+struct popen_state {
+  FILE *p;
+};
+
+static void f_popenr_reset(jq_state *jq, void *data) {
+  struct popen_state *state = data;
+  if (state != NULL&& state->p != NULL)
+    (void) pclose(state->p);
+  jv_mem_free(state);
+}
+
+static jv f_popenr_step(jq_state *jq, void *data) {
+  struct popen_state *state = data;
+  assert(state != NULL && state->p);
+
+  jv out = jv_string("");
+  char buf[1024];
+  int check_eof = 1;
+  while (fgets(buf, sizeof(buf), state->p) != NULL) {
+    check_eof = 0;
+    char *newline = strchr(buf, '\n'); // XXX On Windows look for \r\n
+    if (newline != NULL) {
+      *newline = '\0';
+      out = jv_string_append_str(out, buf);
+      break;
+    }
+    out = jv_string_append_str(out, buf);
+  }
+  if (check_eof && feof(state->p)) {
+    int ret = pclose(state->p);
+    state->p = NULL;
+    jv_free(out);
+    if (ret != 0)
+      out = jv_invalid_with_msg(jv_number(ret));
+    else
+      out = jv_invalid();
+  }
+  return out;
+}
+
+static jv f_popenr(jq_state *jq, void **data, jv input) {
+  struct popen_state *state = jv_mem_alloc(sizeof(*state));
+
+  if (jv_get_kind(input) != JV_KIND_STRING)
+    return type_error(input, "popen inputs must be strings"); // XXX Add support for arrays (argv) too
+  state->p = popen(jv_string_value(input), "r");
+  if (state->p == NULL) {
+    jv_mem_free(state);
+    jv out;
+    if (errno == ENOENT)
+      out = jv_invalid_with_msg(jv_string_fmt("No such file: %s", jv_string_value(input)));
+    else
+      out = jv_invalid_with_msg(jv_string_fmt("Error opening file %s: %s", jv_string_value(input), strerror(errno)));
+    jv_free(input);
+    return out;
+  }
+  jv_free(input);
+  *data = state;
+  return f_popenr_step(jq, state);
+}
+
+
 static void f_readfile_reset(jq_state *jq, void *state) {
   if (state)
     (void) fclose(state);
@@ -1413,6 +1475,7 @@ static const struct cfunction function_list[] = {
   {(cfunction_ptr)f_inputs, "inputs", 1, f_inputs_step},
   {(cfunction_ptr)f_readfile, "readfile", 1, f_readfile_step, f_readfile_reset},
   {(cfunction_ptr)f_explodes, "explodes", 1, f_explodes_step, f_explodes_reset},
+  {(cfunction_ptr)f_popenr, "_popenr", 1, f_popenr_step, f_popenr_reset},
   {(cfunction_ptr)f_debug, "debug", 1},
   {(cfunction_ptr)f_stderr, "stderr", 1},
   {(cfunction_ptr)f_strptime, "strptime", 2},
