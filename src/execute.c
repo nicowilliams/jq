@@ -827,6 +827,37 @@ jv jq_next(jq_state *jq) {
       break;
     }
 
+    case ON_BACKTRACK(REENTER_BUILTIN_GENERIC):
+    case REENTER_BUILTIN_GENERIC:
+    case ON_BACKTRACK(CALL_BUILTIN_GENERIC):
+    case CALL_BUILTIN_GENERIC: {
+      int reentering = (opcode == ON_BACKTRACK(REENTER_BUILTIN_GENERIC)) || (opcode ==  REENTER_BUILTIN_GENERIC);
+      int nargs = *pc++;
+      struct cfunction* function = &frame_current(jq)->bc->globals->cfunctions[*pc++];
+      int next;
+      jv top = stack_pop(jq);
+
+      top = function->cgeneric(jq, &jq->curr_c_gen_state, nargs, &jq->error, top, &next);
+      if (jv_get_kind(jq->error) != JV_KIND_NULL || jv_get_kind(top) == JV_KIND_INVALID) {
+        assert(jq->curr_c_gen_state == NULL);
+        goto do_backtrack;
+      }
+      assert(jq->curr_c_gen_state != NULL);
+      struct stack_pos spos = stack_get_pos(jq);
+      stack_save(jq, pc - 3, spos);   // create backtrack point
+      stack_push(jq, top);
+      if (next == -1) {
+        // top is a value output that we're returning; we have to skip
+        // the next nargs trampolines to get to the RET
+        next = nargs;
+      }
+      assert(next >= 0 && next <= nargs);
+      pc += next * 2;
+      assert(*pc == JUMP);
+      pc += *(pc + 1);
+      break;
+    }
+
     case ON_BACKTRACK(CALL_BUILTIN_GENERATOR):
     case CALL_BUILTIN_GENERATOR: {
       int nargs = *pc++;
@@ -849,7 +880,7 @@ jv jq_next(jq_state *jq) {
       typedef jv (*gen_5)(jq_state*,cfunction_gen_state**,jv,jv,jv,jv,jv);
 
       if (opcode == CALL_BUILTIN_GENERATOR) {
-        // Initial call
+        // Initial call (XXX assert that jq->curr_c_gen_state == NULL?)
         top = stack_pop(jq);
         in[0] = top;
         for (int i = 1; i < nargs; i++)
@@ -870,6 +901,7 @@ jv jq_next(jq_state *jq) {
       }
 
       if (jv_is_valid(top)) {
+        // XXX Why do we not create the backtrack point first?!
         struct stack_pos spos = stack_get_pos(jq);
         stack_save(jq, pc - 3, spos);   // create backtrack point
         stack_push(jq, top);
