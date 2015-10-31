@@ -51,7 +51,7 @@ struct cfunction {
   cfunction_ptr fptr;
   const char* name;
   int nargs;
-  int is_generator;
+  jv (*cgen_step)(jq_state *, void *);
   void (*cgen_reset)(jq_state *, void *);
 };
 
