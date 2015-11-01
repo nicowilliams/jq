@@ -286,11 +286,13 @@ static void jq_reset(jq_state *jq) {
   uint16_t *pc;
   while ((pc = stack_restore(jq))) {
     /*
-     * C-coded generators have state to free.  All other state on the
-     * stack (jv values, frames, fork points) gets released by
-     * stack_restore().
+     * C-coded generators and C-coded generic jq functions have state to
+     * free.  All other state on the stack (jv values, frames and local
+     * variables, and fork points) gets released by stack_restore().  We
+     * don't free state in the REENTER_BUILTIN_GENERIC case because that
+     * shares state with CALL_BUILTIN_GENERIC.
      */
-    if (*pc++ != CALL_BUILTIN_GENERATOR)
+    if (*pc++ != CALL_BUILTIN_GENERATOR && *pc++ != CALL_BUILTIN_GENERIC)
       continue;
     pc++;
     struct cfunction* function = &frame_current(jq)->bc->globals->cfunctions[*pc];
@@ -839,22 +841,43 @@ jv jq_next(jq_state *jq) {
 
       top = function->cgeneric(jq, &jq->curr_c_gen_state, nargs, &jq->error, top, &next);
       if (jv_get_kind(jq->error) != JV_KIND_NULL || jv_get_kind(top) == JV_KIND_INVALID) {
-        assert(jq->curr_c_gen_state == NULL);
+        // Raise or backtrack.  Note that this could be from a reentered
+        // C-coded function, in which case jq->curr_c_gen_state will not
+        // be NULL.
         goto do_backtrack;
       }
+      // The C-coded function output a value (next == -1) or is calling
+      // a closure argument with the returned value (next >= 0)
+      // 
+      // stack_save() resets jq->curr_c_gen_state, but we need to
+      // restore so that the trampoline will have it available.  We
+      // can't just restore it after the stack_save() call: subsequent
+      // opcodes may (mostly will!) stack_save() themselves, so we're
+      // bound to lose track of this function's state.
+      //
+      // Problem: how to restore jq->curr_c_gen_state on reentry?
+      //
+      // Answer(?): Extend the frame to include it.
+      cfunction_gen_state *gen_state = jq->curr_c_gen_state;
       assert(jq->curr_c_gen_state != NULL);
       struct stack_pos spos = stack_get_pos(jq);
-      stack_save(jq, pc - 3, spos);   // create backtrack point
+      stack_save(jq, pc - 3, spos);     // create backtrack point
       stack_push(jq, top);
+      // The next nargs instructions are JUMPs to the calls to argument
+      // closures (CALL_JQ, CALL_BUILTIN, CALL_BUILTIN_GENERATOR, or
+      // CALL_BUILTIN_GENERIC), one JUMP for each argument.  After the
+      // last of those JUMPs is a RET.  The next output argument of the
+      // function->cgeneric() call tells us what the function wanted to
+      // do next, and so we do it.
+      assert(next >= -1 && next < nargs);
       if (next == -1) {
-        // top is a value output that we're returning; we have to skip
-        // the next nargs trampolines to get to the RET
-        next = nargs;
+        pc += (nargs * 2);
+        assert(*pc == RET);
+      } else {
+        pc += next * 2;
+        assert(*pc == JUMP);
+        pc += *(pc + 1);
       }
-      assert(next >= 0 && next <= nargs);
-      pc += next * 2;
-      assert(*pc == JUMP);
-      pc += *(pc + 1);
       break;
     }
 
