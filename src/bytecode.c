@@ -120,7 +120,7 @@ void dump_operation(struct bytecode* bc, uint16_t* codeptr) {
           printf("^%d", level);
         }
       }
-    } else if (op->op == CALL_BUILTIN) {
+    } else if (op->op == CALL_BUILTIN || op->op == CALL_BUILTIN_GENERATOR) {
       int func = bc->code[pc++];
       jv name = jv_array_get(jv_copy(bc->globals->cfunc_names), func);
       printf(" %s", jv_string_value(name));
