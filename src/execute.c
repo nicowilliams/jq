@@ -99,7 +99,7 @@ static jv* frame_local_var(struct jq_state* jq, int var, int level) {
   struct frame* fr = stack_block(&jq->stk, frame_get_level(jq, level));
   assert(var >= 0);
   assert(var < fr->bc->nlocals);
-  return &fr->entries[fr->bc->nclosures + var].localvar;
+	 return &fr->entries[fr->bc->nclosures + var].localvar;
 }
 
 static struct closure make_closure(struct jq_state* jq, uint16_t* pc) {
@@ -210,7 +210,7 @@ struct stack_pos stack_get_pos(jq_state* jq) {
 void stack_save(jq_state *jq, uint16_t* retaddr, struct stack_pos sp){
   jq->fork_top = stack_push_block(&jq->stk, jq->fork_top, sizeof(struct forkpoint));
   struct forkpoint* fork = stack_block(&jq->stk, jq->fork_top);
-  fork->c_generator_statep = jq->curr_c_gen_state;
+  fork->c_generator_statep = jq->curr_c_gen_state; // XXX Inefficient; use a separate block following this forkpoint
   fork->saved_data_stack = jq->stk_top;
   fork->saved_curr_frame = jq->curr_frame;
   fork->path_len =
@@ -833,21 +833,71 @@ jv jq_next(jq_state *jq) {
     case REENTER_BUILTIN_GENERIC:
     case ON_BACKTRACK(CALL_BUILTIN_GENERIC):
     case CALL_BUILTIN_GENERIC: {
+      // CALL_BUILTIN_GENERIC *must* be the first instruction of a
+      // byte-coded jq function, and it must be followed by N JUMPs, one
+      // each for each argument closude to the CALL_BUILTIN_GENERIC,
+      // then a RET.  The JUMPs jump to CALL_JQ instructions which are
+      // then followed by REENTER_BUILTIN_GENERIC, which then complete
+      // the trampoline by re-entering this path.  A C-coded generic's
+      // bytecode then looks like this:
+      //
+      // some_func/2's bytecode:
+      //    0000 CALL_BUILTIN_GENERIC
+      //    0001 2 (nargs)
+      //    0002 <global C function index>
+      //    0003 JUMP
+      //    0004 0007
+      //    0005 JUMP
+      //    0006 0007
+      //    0007 RET
+      //    0008 CALL_JQ
+      //    0009 0 (nclosures)
+      //    0010 ... (frame_level)
+      //    0011 ... (idx)
+      //    0012 REENTER_BUILTIN_GENERIC
+      //    0013 -13 (relative address of CALL_BUILTIN_GENERIC)
+      //    0014 CALL_JQ
+      //    0015 0 (nclosures)
+      //    0016 ... (frame_level)
+      //    0017 ... (idx)
+      //    0018 REENTER_BUILTIN_GENERIC
+      //    0019 -19 (relative address of CALL_BUILTIN_GENERIC)
+      //
+      // The current frame is always that which corresponds to the
+      // byte-coded wrapper for the C-coded generic.
       int reentering = (opcode == ON_BACKTRACK(REENTER_BUILTIN_GENERIC)) || (opcode ==  REENTER_BUILTIN_GENERIC);
-      int nargs = *pc++;
+      int n = *pc++;
+      int nargs;
+      if (reentering) {
+        nargs = *(pc - n + 1);
+        // The returning closure's backtrack point retains its
+        // curr_c_gen_state, if it had one.
+        jq->curr_c_gen_state = stack_get_cgeneric_state(jq);
+      } else {
+        nargs = n;
+        n = 2
+      }
       struct cfunction* function = &frame_current(jq)->bc->globals->cfunctions[*pc++];
       int next;
       jv top = stack_pop(jq);
 
+      // function->cgeneric() does not reenter jq_next() to call a
+      // closure.  Instead it tells us whether it's calling a closure or
+      // outputing a value via the 'next' output argument.  Though if it
+      // returns a JV_KIND_INVALID jv, then we're backtracking, natch.
       top = function->cgeneric(jq, &jq->curr_c_gen_state, nargs, &jq->error, top, &next);
       if (jv_get_kind(jq->error) != JV_KIND_NULL || jv_get_kind(top) == JV_KIND_INVALID) {
         // Raise or backtrack.  Note that this could be from a reentered
         // C-coded function, in which case jq->curr_c_gen_state will not
         // be NULL.
+        assert(reentering || jq->curr_c_gen_state == NULL);
+        if (!reentering)
+          stack_pop_cgeneric_state(jq);
         goto do_backtrack;
       }
-      // The C-coded function output a value (next == -1) or is calling
-      // a closure argument with the returned value (next >= 0)
+      // The 'next' output tells us whether the jv returned is an output
+      // of the generic (next == -1) or is the input to an invocation of
+      // a closure argument (next >= 0).
       // 
       // stack_save() resets jq->curr_c_gen_state, but we need to
       // restore so that the trampoline will have it available.  We
@@ -857,26 +907,41 @@ jv jq_next(jq_state *jq) {
       //
       // Problem: how to restore jq->curr_c_gen_state on reentry?
       //
-      // Answer(?): Extend the frame to include it.
-      cfunction_gen_state *gen_state = jq->curr_c_gen_state;
+      // Answer(?): Extend the frame to include it?  That kinda sucks.
+      // We don't want to have to enlarge the frames for jq-coded
+      // functions.
+      //
+      // Answer: We want instead to push a stack block containing
+      // our pointer.
+      //
+      // XXX We should do the same re: forkpoints, so we don't enlarge
+      // the fork structure unnecessarily.
+      if (!reentering)
+        stack_push_cgeneric_state(jq);
       assert(jq->curr_c_gen_state != NULL);
       struct stack_pos spos = stack_get_pos(jq);
-      stack_save(jq, pc - 3, spos);     // create backtrack point
+      uint16_t *reentry;
+      // create backtrack point to this instruction
+      stack_save(jq, pc - 2, spos);
       stack_push(jq, top);
-      // The next nargs instructions are JUMPs to the calls to argument
-      // closures (CALL_JQ, CALL_BUILTIN, CALL_BUILTIN_GENERATOR, or
-      // CALL_BUILTIN_GENERIC), one JUMP for each argument.  After the
-      // last of those JUMPs is a RET.  The next output argument of the
-      // function->cgeneric() call tells us what the function wanted to
-      // do next, and so we do it.
+
+      // Now work out the address to jump to
+      //
+      // The nargs instructions following the CALL_BUILTIN_GENERIC are
+      // JUMPs to the calls to argument closures (CALL_JQ, CALL_BUILTIN,
+      // CALL_BUILTIN_GENERATOR, or CALL_BUILTIN_GENERIC), one JUMP for
+      // each argument.  After the last of those JUMPs is a RET.  The
+      // next output argument of the function->cgeneric() call tells us
+      // what the function wanted to do next, and so we do it.
       assert(next >= -1 && next < nargs);
       if (next == -1) {
-        pc += (nargs * 2);
+        // Output a value
+        pc = pc - n + 2 + nargs * 2
         assert(*pc == RET);
       } else {
-        pc += next * 2;
+        // Call a closure
+        pc = pc - n + 2 + next * 2;
         assert(*pc == JUMP);
-        pc += *(pc + 1);
       }
       break;
     }
