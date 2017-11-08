@@ -2560,6 +2560,13 @@ sections:
           functions (or main program) subsequent to the re-definition.
           See also the section below on scoping.
 
+          Variable-argument functions may also be defined, such as:
+
+              def f(a; v[$nv]): $nv, a, %v[.];
+
+          which is a function of at least one argument that outputs the number
+          of arguments given (`$nv`), the first argument, and the `.`th argument.
+
         examples:
           - program: 'def addvalue(f): . + [f]; map(addvalue(.[0]))'
             input: '[[1,2],[10,20]]'
@@ -2607,6 +2614,50 @@ sections:
           - program: 'reduce .[] as $item (0; . + $item)'
             input: '[10,2,5,3]'
             output: ['20']
+
+      - title: "`which(exp; ...)`"
+        body: |
+
+          Returns the number of the argument(s) that matches the input (`.`).
+
+        examples:
+          - program: 'which("foo"; "bar"; "bar")'
+            input: '"bar"'
+            output: ['1, 2']
+
+      - title: "`which1(exp; ...)`"
+        body: |
+
+          Returns the number of the first argument (from left to right) that
+          matches the input (`.`).  If none match, then an error is raised.
+
+        examples:
+          - program: 'which1("foo"; "bar")'
+            input: '"bar"'
+            output: ['1']
+
+      - title: "`switch(exp; ...)`"
+        body: |
+
+          Matches the input (`.`) to the even-numbered argument expressions and
+          runs the odd-numbered argument expressions corresponding to the matching expressions.
+
+        examples:
+          - program: 'switch("foo"; "foobar"; "bar"; "barfoo"; "bar"; "blah")'
+            input: '"bar"'
+            output: ['"barfoo", "blah"']
+
+      - title: "`swhich1(exp; ...)`"
+        body: |
+
+          Matches the input (`.`) to one even-numbered argument expressions,
+          from left to right, and runs the odd-numbered argument expression
+          corresponding to the matching expression.
+
+        examples:
+          - program: 'switch1("foo"; "foobar"; "bar"; "barfoo"; "bar"; "blah")'
+            input: '"bar"'
+            output: ['"barfoo"']
 
       - title: "`isempty(exp)`"
         body: |

@@ -118,7 +118,7 @@ struct lexer_param;
 %type <blk> String QQString
 %type <blk> FuncDef FuncDefs
 %type <blk> Module Import Imports ImportWhat ImportFrom
-%type <blk> Param Params Arg Args
+%type <blk> VarargParam Param Params Arg Args
 %type <blk> Patterns RepPatterns Pattern ArrayPats ObjPats ObjPat
 %type <literal> Keyword
 %{
@@ -560,11 +560,18 @@ FuncDef:
   jv_free($2);
 }
 
+/* For varargs functions, the vararg array must be last */
 Params:
+VarargParam {
+  $$ = $1;
+} |
 Param {
   $$ = $1;
 } |
 Params ';' Param {
+  $$ = BLOCK($1, $3);
+} |
+Params ';' VarargParam {
   $$ = BLOCK($1, $3);
 }
 
@@ -576,6 +583,13 @@ Param:
 
 IDENT {
   $$ = gen_param(jv_string_value($1));
+  jv_free($1);
+}
+
+VarargParam:
+IDENT '[' '$' IDENT ']' {
+  $$ = gen_param_vararg(jv_string_value($1), jv_string_value($4));
+  jv_free($4);
   jv_free($1);
 }
 
@@ -674,6 +688,11 @@ Term '.' String %prec NONOPT {
   jv_free($2);
   FAIL(@$, "try .[\"field\"] instead of .field for unusually named fields");
   $$ = gen_noop();
+} |
+'%' IDENT '[' Exp ']' {
+  /* varargs arg deref */
+  $$ = gen_location(@$, locations, gen_call_varargs(jv_string_value($2), $4));
+  jv_free($2);
 } |
 /* FIXME: string literals */
 Term '[' Exp ']' '?' {

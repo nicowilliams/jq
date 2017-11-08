@@ -68,11 +68,14 @@ struct frame {
   stack_ptr env;            // jq stack address of frame to return to
   stack_ptr retdata;        // jq stack address to unwind to on RET
   uint16_t* retaddr;        // jq bytecode return address
+  int nclosures;       // number of argument closures; needed for varargs
   union frame_entry entries[]; // nclosures + nlocals
 };
 
-static int frame_size(struct bytecode* bc) {
-  return sizeof(struct frame) + sizeof(union frame_entry) * (bc->nclosures + bc->nlocals);
+static int frame_size(struct bytecode* bc, int nclosures) {
+  assert((bc->nclosures >= 0 && bc->nclosures == nclosures) ||
+         (bc->nclosures < 0 && -(bc->nclosures + 2) <= nclosures));
+  return sizeof(struct frame) + sizeof(union frame_entry) * (nclosures + bc->nlocals);
 }
 
 static struct frame* frame_current(struct jq_state* jq) {
@@ -102,7 +105,7 @@ static jv* frame_local_var(struct jq_state* jq, int var, int level) {
   struct frame* fr = stack_block(&jq->stk, frame_get_level(jq, level));
   assert(var >= 0);
   assert(var < fr->bc->nlocals);
-  return &fr->entries[fr->bc->nclosures + var].localvar;
+  return &fr->entries[fr->nclosures + var].localvar;
 }
 
 static struct closure make_closure(struct jq_state* jq, uint16_t* pc) {
@@ -121,20 +124,31 @@ static struct closure make_closure(struct jq_state* jq, uint16_t* pc) {
   } else {
     // A reference to a closure from the frame identified by level; copy
     // it as-is
-    int closure = idx;
-    assert(closure >= 0);
-    assert(closure < fr->bc->nclosures);
-    return fr->entries[closure].closure;
+    assert(fr->bc->nclosures < -1 || idx < fr->bc->nclosures);
+    return fr->entries[idx].closure;
   }
+}
+
+static struct closure make_vararg_closure(struct jq_state* jq, uint16_t level, uint16_t idx) {
+  stack_ptr fridx = frame_get_level(jq, level);
+  struct frame* fr = stack_block(&jq->stk, fridx);
+  idx += -(fr->bc->nclosures + 2);
+  if (idx >= fr->nclosures) {
+    struct closure invalid = { 0, 0 };
+    return invalid;
+  }
+  return fr->entries[idx].closure;
 }
 
 static struct frame* frame_push(struct jq_state* jq, struct closure callee,
                                 uint16_t* argdef, int nargs) {
-  stack_ptr new_frame_idx = stack_push_block(&jq->stk, jq->curr_frame, frame_size(callee.bc));
+  stack_ptr new_frame_idx = stack_push_block(&jq->stk, jq->curr_frame, frame_size(callee.bc, nargs));
   struct frame* new_frame = stack_block(&jq->stk, new_frame_idx);
   new_frame->bc = callee.bc;
   new_frame->env = callee.env;
-  assert(nargs == new_frame->bc->nclosures);
+  new_frame->nclosures = nargs;
+  assert(nargs == new_frame->bc->nclosures ||
+         (new_frame->bc->nclosures < 0 && nargs >= -new_frame->bc->nclosures - 3));
   union frame_entry* entries = new_frame->entries;
   for (int i=0; i<nargs; i++) {
     entries->closure = make_closure(jq, argdef + i * 2);
@@ -157,7 +171,7 @@ static void frame_pop(struct jq_state* jq) {
       jv_free(*frame_local_var(jq, i, 0));
     }
   }
-  jq->curr_frame = stack_pop_block(&jq->stk, jq->curr_frame, frame_size(fp->bc));
+  jq->curr_frame = stack_pop_block(&jq->stk, jq->curr_frame, frame_size(fp->bc, fp->nclosures));
 }
 
 void stack_push(jq_state *jq, jv val) {
@@ -869,7 +883,7 @@ jv jq_next(jq_state *jq) {
       }
       break;
     }
-
+          
     case TAIL_CALL_JQ:
     case CALL_JQ: {
       /*
@@ -905,6 +919,12 @@ jv jq_next(jq_state *jq) {
       if (opcode == TAIL_CALL_JQ) {
         retaddr = frame_current(jq)->retaddr;
         retdata = frame_current(jq)->retdata;
+        /*
+         * Instead of popping the current frame then pushing a new one
+         * we could instead adjust the size of the current frame and
+         * reinitialize it.  But this is easy and gets us TCO at a low-
+         * enough cost.
+         */
         frame_pop(jq);
       }
       new_frame = frame_push(jq, cl, pc + 2, nclosures);
@@ -912,6 +932,65 @@ jv jq_next(jq_state *jq) {
       new_frame->retaddr = retaddr;
       pc = new_frame->bc->code;
       stack_push(jq, input);
+      break;
+    }
+
+    case TAIL_CALL_JQ_VARARG:
+    case CALL_JQ_VARARG: {
+      /*
+       * Call a vararg _argument_ to the current function.
+       *
+       * Bytecode layout here:
+       *
+       *  CALL_JQ_VARARG
+       *   <level>
+       *
+       * The index in the varargs array to call must be at the top of the
+       * stack, and below that must be the input to the cloaure we're
+       * calling.
+       */
+      uint16_t level = *pc++;
+      jv input = stack_pop(jq);
+      jv key = stack_pop(jq);
+      if (jv_get_kind(key) != JV_KIND_NUMBER || jv_number_value(key) < 0) {
+        set_error(jq, jv_invalid_with_msg(jv_string_fmt("Invalid vararg index (non-numeric)")));
+        jv_free(input);
+        jv_free(key);
+        goto do_backtrack;
+      }
+      uint16_t* retaddr = pc;
+      stack_ptr retdata = jq->stk_top;
+      struct frame* new_frame;
+      struct closure cl = make_vararg_closure(jq, level, jv_number_value(key));
+      if (cl.bc == NULL) {
+        if (jv_is_integer(key))
+          set_error(jq, jv_invalid_with_msg(jv_string_fmt("Invalid vararg index %d",
+                                                          (int)jv_number_value(key))));
+        else
+          set_error(jq, jv_invalid_with_msg(jv_string_fmt("Invalid vararg index %f",
+                                                          jv_number_value(key))));
+        jv_free(key);
+        jv_free(input);
+        goto do_backtrack;
+      }
+      jv_free(key);
+      if (opcode == TAIL_CALL_JQ_VARARG) {
+        retaddr = frame_current(jq)->retaddr;
+        retdata = frame_current(jq)->retdata;
+        frame_pop(jq);
+      }
+      new_frame = frame_push(jq, cl, pc, 0);
+      new_frame->retdata = retdata;
+      new_frame->retaddr = retaddr;
+      pc = new_frame->bc->code;
+      stack_push(jq, input);
+      break;
+    }
+
+    case LOAD_VARARG_COUNT: {
+      struct frame* fp = frame_current(jq);
+      jv_free(stack_pop(jq));
+      stack_push(jq, jv_number(fp->nclosures - -(fp->bc->nclosures+2)));
       break;
     }
 
@@ -1092,19 +1171,25 @@ static int ret_follows(uint16_t *pc) {
  * a) the next instruction is a RET or a chain of unconditional JUMPs
  * that ends in a RET, and
  *
- * b) none of the closures -callee included- have level == 0.
+ * b) none of the closures -callee included- have level == 0 (i.e., none of
+ * the closures close over _this_ frame).
  */
 static uint16_t tail_call_analyze(uint16_t *pc) {
-  assert(*pc == CALL_JQ);
+  uint16_t op = *pc;
+  assert(op == CALL_JQ || op == CALL_JQ_VARARG);
   pc++;
   // + 1 for the callee closure
   for (uint16_t nclosures = *pc++ + 1; nclosures > 0; pc++, nclosures--) {
     if (*pc++ == 0)
-      return CALL_JQ;
+      return op;
   }
-  if (ret_follows(pc))
-    return TAIL_CALL_JQ;
-  return CALL_JQ;
+  if (ret_follows(pc)) {
+    if (op == CALL_JQ)
+      return TAIL_CALL_JQ;
+    else
+      return TAIL_CALL_JQ_VARARG;
+  }
+  return op;
 }
 
 static struct bytecode *optimize_code(struct bytecode *bc) {

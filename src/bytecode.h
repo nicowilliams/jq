@@ -80,6 +80,7 @@ struct bytecode {
 
   int nlocals;
   int nclosures;
+  int is_vararg;
 
   jv constants; // JSON array of constants
   struct symbol_table* globals;

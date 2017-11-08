@@ -309,3 +309,19 @@ def JOIN($idx; stream; idx_expr; join_expr):
   stream | [., $idx[idx_expr]] | join_expr;
 def IN(s): reduce (first(select(. == s)) | true) as $v (false; if . or $v then true else false end);
 def IN(src; s): reduce (src|IN(s)) as $v (false; if . or $v then true else false end);
+
+# switch:
+def nswitch(v[$nv]): %v[.];
+def which(v[$nv]): range($nv) as $idx | select(.==%v[$idx]) | $idx;
+def which1(v[$nv]): try (first(range($nv + 1) as $idx | select(.==%v[$idx]) | $idx)) catch ("No expressions match input"|error);
+# XXX Add a default arm??
+#
+# Here's where syntactic sugar would be nice.  We could define a helper
+# _switch() and _switch1() that use the first (or last) closure pair as the
+# default arm and then we could have syntax like:
+#
+#   switch(exp) (default => exp; case exp => exp; ...)
+#
+# which looks pretty good!
+def switch(v[$nv]): range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1];
+def switch1(v[$nv]): first(range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1]);

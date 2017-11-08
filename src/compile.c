@@ -288,6 +288,12 @@ static int block_count_formals(block b) {
   if (b.first->op == CLOSURE_CREATE_C)
     return b.first->imm.cfunc->nargs - 1;
   for (inst* i = b.first->arglist.first; i; i = i->next) {
+    if (i->op == CLOSURE_PARAM_VARARG_ARRAY) {
+      assert(i->next != NULL &&
+             i->next->op == CLOSURE_PARAM_VARARG_ARRAY_LENGTH &&
+             i->next->next == NULL);
+      return -(args + 2); // never -1 -- -1 indicates "not counted yet"
+    }
     assert(i->op == CLOSURE_PARAM);
     args++;
   }
@@ -346,7 +352,9 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
       // bind this instruction
       if (i->op == CALL_JQ && i->nactuals == -1)
         i->nactuals = block_count_actuals(i->arglist);
-      if (i->nactuals == -1 || i->nactuals == binder.first->nformals) {
+      if (i->nactuals == -1 || i->nactuals == binder.first->nformals ||
+          // or enough args for varags binder
+          (binder.first->nformals < -1 && i->nactuals >= -(binder.first->nformals + 2))) {
         i->bound_by = binder.first;
         nrefs++;
       }
@@ -361,6 +369,12 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
     nrefs += block_bind_subblock(binder, i->subfn, bindflags, break_distance);
     // binding recurses into argument list
     nrefs += block_bind_subblock(binder, i->arglist, bindflags, break_distance);
+
+    /*
+     * XXX If the binder is a C-coded jq function, and the binder is pure, and
+     * the arguments are const, then apply it here to get better const-
+     * folding, then we can get rid of the old const-folding.
+     */
   }
   return nrefs;
 }
@@ -542,6 +556,13 @@ block gen_import_meta(block import, block metadata) {
 block gen_function(const char* name, block formals, block body) {
   inst* i = inst_new(CLOSURE_CREATE);
   for (inst* i = formals.last; i; i = i->prev) {
+    if (i->op == CLOSURE_PARAM_VARARG_ARRAY_LENGTH) {
+      assert(i->prev->op == CLOSURE_PARAM_VARARG_ARRAY);
+      body = BLOCK(gen_op_simple(DUP), gen_op_simple(LOAD_VARARG_COUNT),
+                   block_bind(gen_op_unbound(STOREV, i->symbol),
+                              body, OP_HAS_VARIABLE));
+      continue;
+    }
     if (i->op == CLOSURE_PARAM_REGULAR) {
       i->op = CLOSURE_PARAM;
       body = gen_var_binding(gen_call(i->symbol, gen_noop()), i->symbol, body);
@@ -560,6 +581,11 @@ block gen_param_regular(const char* name) {
   return gen_op_unbound(CLOSURE_PARAM_REGULAR, name);
 }
 
+block gen_param_vararg(const char *aname, const char *vname) {
+  return BLOCK(gen_op_unbound(CLOSURE_PARAM_VARARG_ARRAY, aname),
+               gen_op_unbound(CLOSURE_PARAM_VARARG_ARRAY_LENGTH, vname));
+}
+
 block gen_param(const char* name) {
   return gen_op_unbound(CLOSURE_PARAM, name);
 }
@@ -572,6 +598,10 @@ block gen_call(const char* name, block args) {
   block b = gen_op_unbound(CALL_JQ, name);
   b.first->arglist = args;
   return b;
+}
+
+block gen_call_varargs(const char *name, block key) {
+  return BLOCK(gen_subexp(key), gen_op_unbound(CALL_JQ_VARARG, name));
 }
 
 block gen_subexp(block a) {
@@ -1132,6 +1162,7 @@ make_env(jv env)
 // Expands call instructions into a calling sequence
 static int expand_call_arglist(block* b, jv args, jv *env) {
   int errors = 0;
+  int calling_vararg = 0;
   block ret = gen_noop();
   for (inst* curr; (curr = block_take(b));) {
     if (opcode_describe(curr->op)->flags & OP_HAS_BINDING) {
@@ -1145,9 +1176,12 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
         if (curr->symbol[0] == '*' && curr->symbol[1] >= '1' && curr->symbol[1] <= '3' && curr->symbol[2] == '\0')
           locfile_locate(curr->locfile, curr->source, "jq: error: break used outside labeled control structure");
         else if (curr->op == LOADV)
+          // XXX Improve error message for undefined break labels
           locfile_locate(curr->locfile, curr->source, "jq: error: $%s is not defined", curr->symbol);
+        else if (curr->op == CALL_JQ_VARARG)
+          locfile_locate(curr->locfile, curr->source, "jq: error: vararg array %%%s[] is not defined", curr->symbol);
         else
-          locfile_locate(curr->locfile, curr->source, "jq: error: %s/%d is not defined", curr->symbol, block_count_actuals(curr->arglist));
+          locfile_locate(curr->locfile, curr->source, "jq: error: function %s/%d is not defined", curr->symbol, block_count_actuals(curr->arglist));
         errors++;
         // don't process this instruction if it's not well-defined
         ret = BLOCK(ret, inst_block(curr));
@@ -1156,12 +1190,13 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
     }
 
     block prelude = gen_noop();
-    if (curr->op == CALL_JQ) {
+    if (curr->op == CALL_JQ || curr->op == CALL_JQ_VARARG) {
       int actual_args = 0, desired_args = 0;
       // We expand the argument list as a series of instructions
       switch (curr->bound_by->op) {
       default: assert(0 && "Unknown function type"); break;
       case CLOSURE_CREATE:
+      case CLOSURE_PARAM_VARARG_ARRAY:
       case CLOSURE_PARAM: {
         block callargs = gen_noop();
         for (inst* i; (i = block_take(&curr->arglist));) {
@@ -1184,8 +1219,13 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
 
         if (curr->bound_by->op == CLOSURE_CREATE) {
           for (inst* i = curr->bound_by->arglist.first; i; i = i->next) {
-            assert(i->op == CLOSURE_PARAM);
-            desired_args++;
+            if (i->op == CLOSURE_PARAM_VARARG_ARRAY) {
+              calling_vararg = 1;
+            } else if (i->op == CLOSURE_PARAM) {
+              desired_args++;
+            } else {
+              assert(i->op == CLOSURE_PARAM_VARARG_ARRAY_LENGTH);
+            }
           }
         }
         break;
@@ -1202,7 +1242,7 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
           prelude = BLOCK(gen_subexp(body), prelude);
           actual_args++;
         }
-        assert(curr->op == CALL_JQ);
+        assert(curr->op == CALL_JQ); // can't be a vararg
         curr->op = CALL_BUILTIN;
         curr->imm.intval = actual_args + 1 /* include the implicit input in arg count */;
         assert(curr->bound_by->op == CLOSURE_CREATE_C);
@@ -1212,7 +1252,7 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
       }
       }
 
-      assert(actual_args == desired_args); // because now handle this above
+      assert(actual_args == desired_args || (actual_args >= desired_args && calling_vararg)); // because now handle this above
     }
     ret = BLOCK(ret, prelude, inst_block(curr));
   }
@@ -1281,9 +1321,18 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
         subfn->debuginfo = jv_object_set(jv_object(), jv_string("name"), jv_string(curr->symbol));
         jv params = jv_array();
         for (inst* param = curr->arglist.first; param; param = param->next) {
-          assert(param->op == CLOSURE_PARAM);
+          if (param->op == CLOSURE_PARAM_VARARG_ARRAY_LENGTH)
+            continue;
+          assert(param->op == CLOSURE_PARAM || param->op == CLOSURE_PARAM_VARARG_ARRAY);
           assert(param->bound_by == param);
-          param->imm.intval = subfn->nclosures++;
+          assert(param->op == CLOSURE_PARAM ||
+                 (param->next->op == CLOSURE_PARAM_VARARG_ARRAY_LENGTH &&
+                  param->next->next == NULL)); // vararg array is last
+          if (param->op == CLOSURE_PARAM_VARARG_ARRAY) {
+            param->imm.intval = subfn->nclosures;
+            subfn->nclosures = -(subfn->nclosures + 2);
+          } else
+            param->imm.intval = subfn->nclosures++;
           param->compiled = subfn;
           params = jv_array_append(params, jv_string(param->symbol));
         }
@@ -1312,6 +1361,13 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
       code[pos++] = (uint16_t)curr->imm.intval;
       code[pos++] = curr->bound_by->imm.intval;
     } else if (curr->op == CALL_JQ) {
+      if (curr->bound_by->op == CLOSURE_PARAM_VARARG_ARRAY) {
+        locfile_locate(curr->locfile, curr->source,
+            "missing %% for vararg array reference of %%%s[]?",
+            curr->bound_by->symbol);
+        errors++;
+        continue;
+      }
       assert(curr->bound_by->op == CLOSURE_CREATE ||
              curr->bound_by->op == CLOSURE_PARAM);
       code[pos++] = (uint16_t)curr->imm.intval;
@@ -1323,6 +1379,9 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
         code[pos++] = nesting_level(bc, arg->bound_by);
         code[pos++] = arg->bound_by->imm.intval | ARG_NEWCLOSURE;
       }
+    } else if (curr->op == CALL_JQ_VARARG) {
+      assert(curr->bound_by->op == CLOSURE_PARAM_VARARG_ARRAY);
+      code[pos++] = nesting_level(bc, curr->bound_by);
     } else if ((op->flags & OP_HAS_CONSTANT) && (op->flags & OP_HAS_VARIABLE)) {
       // STORE_GLOBAL: constant global, basically
       code[pos++] = jv_array_length(jv_copy(constant_pool));
