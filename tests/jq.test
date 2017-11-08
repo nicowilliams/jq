@@ -1420,4 +1420,56 @@ isempty(1,error("foo"))
 null
 false
 
+## varargs!
+
+# Basic varargs functionality
+def f(a; v[$nv]): try ($nv, a, %v[.]) catch .; range(5) | [f("foo"; "bar"; "baz"; "blah")]
+null
+[3, "foo", "bar"]
+[3, "foo", "baz"]
+[3, "foo", "blah"]
+[3, "foo", "Invalid vararg index 3"]
+[3, "foo", "Invalid vararg index 4"]
+
+# Test zero arguments passing to functions with only varargs arguments
+def f(v[$nv]): if $nv == 0 then "none" else range($nv) as $idx | %v[$idx] end; f, f("foo"), f("bar"; "baz")
+null
+"none"
+"foo"
+"bar"
+"baz"
+
+# Test that $nv and %v[] indices are properly normalized
+def f(a; v[$nv]): a, if $nv == 0 then "none" else range($nv) as $idx | %v[$idx] end; f("foo"), f("bar"; "baz")
+null
+"foo"
+"none"
+"bar"
+"baz"
+
+# Test coexistence of f/n with f/-(n+2)
+def f(a): "one"; def f(a; b; v[$nv]): $nv; f("foo"), f("bar"; "baz")
+null
+"one"
+0
+
+# Test references to varargs arrays from frames other than the current one
+def f(v[$nv]): def g(v2[$nv2]): %v[$nv-1] + %v2[$nv2-1]; g("bar"); f("foo")
+null
+"foobar"
+
+# Test some builtins (XXX Add tests of switch() and switch1())
+.[]|which("foo"; "bar"; "baz")
+["foo","bar","baz","sdf"]
+0
+1
+2
+
+.[]|try (which1("foo"; "bar"; "baz")) catch .
+["foo","bar","baz","sdf"]
+0
+1
+2
+"No expressions match input"
+
 
