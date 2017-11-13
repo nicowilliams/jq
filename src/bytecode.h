@@ -50,6 +50,15 @@ struct cfunction {
   cfunction_ptr fptr;
   const char* name;
   int nargs;
+  unsigned int pure:1;        // Suitable for constant folding at compile-
+                              // time when we can see that the input (prev
+                              // inst) and arguments are all constant exprs.
+
+  unsigned int ignores_int:1; // Some builtins ignore their input, using
+                              // only their arguments, which is good because
+                              // we might be able to constant fold those even
+                              // when we can't determine whether their inputs
+                              // are constant expressions.
 };
 
 struct symbol_table {
