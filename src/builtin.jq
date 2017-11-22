@@ -3,11 +3,15 @@ def error: error(.);
 def map(f): [.[] | f];
 def select(f): if f then . else empty end;
 def sort_by(f): _sort_by_impl(map([f]));
+def sort_by(f1; f2; v[$nv]):
+  _sort_by_impl(map([[f1], [f2], [(range($nv) as $idx | %v[$idx])]]));
 def group_by(f): _group_by_impl(map([f]));
+def group_by(f1; f2; v[$nv]):
+  _group_by_impl(map([[f1], [f2], [(range($nv) as $idx | %v[$idx])]]));
 def unique: group_by(.) | map(.[0]);
-def unique_by(f): group_by(f) | map(.[0]);
-def max_by(f): _max_by_impl(map([f]));
-def min_by(f): _min_by_impl(map([f]));
+def unique_by(f): group_by(f) | map(.[0]);  # XXX Make vararg
+def max_by(f): _max_by_impl(map([f]));      # XXX Make vararg
+def min_by(f): _min_by_impl(map([f]));      # XXX Make vararg
 def add: reduce .[] as $x (null; . + $x);
 def del(f): delpaths([path(f)]);
 def _assign(paths; value): value as $v | reduce path(paths) as $p (.; setpath($p; $v));
