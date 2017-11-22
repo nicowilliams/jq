@@ -1,4 +1,4 @@
-def halt_error: halt_error(5);
+def export halt_error: halt_error(5);
 def error: error(.);
 def map(f): [.[] | f];
 def select(f): if f then . else empty end;
@@ -26,14 +26,14 @@ def recurse_down: recurse;
 
 def to_entries: [keys_unsorted[] as $k | {key: $k, value: .[$k]}];
 def from_entries: map({(.key // .Key // .name // .Name): (if has("value") then .value else .Value end)}) | add | .//={};
-def with_entries(f): to_entries | map(f) | from_entries;
-def reverse: [.[length - 1 - range(0;length)]];
+def export with_entries(f): to_entries | map(f) | from_entries;
+def export reverse: [.[length - 1 - range(0;length)]];
 def indices($i): if type == "array" and ($i|type) == "array" then .[$i]
   elif type == "array" then .[[$i]]
   elif type == "string" and ($i|type) == "string" then _strindices($i)
   else .[$i] end;
 def index($i):   indices($i) | .[0];       # TODO: optimize
-def rindex($i):  indices($i) | .[-1:][0];  # TODO: optimize
+def export rindex($i):  indices($i) | .[-1:][0];  # TODO: optimize
 def paths: path(recurse(if (type|. == "array" or . == "object") then .[] else empty end))|select(length > 0);
 def paths(node_filter): . as $dot|paths|select(. as $p|$dot|getpath($p)|node_filter);
 def any(generator; condition):
@@ -50,32 +50,32 @@ def all(generator; condition):
                   if .|not then . else empty end)] | length == 0;
 def all(condition): all(.[]; condition);
 def all: all(.);
-def isfinite: type == "number" and (isinfinite | not);
+def export isfinite: type == "number" and (isinfinite | not);
 def arrays: select(type == "array");
 def objects: select(type == "object");
-def iterables: arrays, objects;
-def booleans: select(type == "boolean");
-def numbers: select(type == "number");
-def normals: select(isnormal);
-def finites: select(isfinite);
-def strings: select(type == "string");
-def nulls: select(type == "null");
-def values: select(. != null);
+def export iterables: arrays, objects;
+def export booleans: select(type == "boolean");
+def export numbers: select(type == "number");
+def export normals: select(isnormal);
+def export finites: select(type == "number" and (isinfinite | not));
+def export strings: select(type == "string");
+def export nulls: select(type == "null");
+def export values: select(. != null);
 def scalars: select(. == null or . == true or . == false or type == "number" or type == "string");
-def scalars_or_empty: select(. == null or . == true or . == false or type == "number" or type == "string" or ((type=="array" or type=="object") and length==0));
-def leaf_paths: paths(scalars);
-def join($x): reduce .[] as $i (null;
+def export scalars_or_empty: select(. == null or . == true or . == false or type == "number" or type == "string" or ((type=="array" or type=="object") and length==0));
+def export leaf_paths: paths(scalars);
+def export join($x): reduce .[] as $i (null;
             (if .==null then "" else .+$x end) +
             ($i | if type=="boolean" or type=="number" then tostring else .//"" end)
         ) // "";
 def _flatten($x): reduce .[] as $i ([]; if $i | type == "array" and $x != 0 then . + ($i | _flatten($x-1)) else . + [$i] end);
-def flatten($x): if $x < 0 then error("flatten depth must not be negative") else _flatten($x) end;
-def flatten: _flatten(-1);
+def export flatten($x): if $x < 0 then error("flatten depth must not be negative") else _flatten($x) end;
+def export flatten: _flatten(-1);
 def range($x): range(0;$x);
-def fromdateiso8601: strptime("%Y-%m-%dT%H:%M:%SZ")|mktime;
+def export fromdateiso8601: strptime("%Y-%m-%dT%H:%M:%SZ")|mktime;
 def todateiso8601: strftime("%Y-%m-%dT%H:%M:%SZ");
-def fromdate: fromdateiso8601;
-def todate: todateiso8601;
+def export fromdate: strptime("%Y-%m-%dT%H:%M:%SZ")|mktime;
+def export todate: strftime("%Y-%m-%dT%H:%M:%SZ");
 def match(re; mode): _match_impl(re; mode; false)|.[];
 def match($val): ($val|type) as $vt | if $vt == "string" then match($val; null)
    elif $vt == "array" and ($val | length) > 1 then match($val[0]; $val[1])
@@ -91,7 +91,7 @@ def capture($val): ($val|type) as $vt | if $vt == "string" then capture($val; nu
    elif $vt == "array" and ($val | length) > 1 then capture($val[0]; $val[1])
    elif $vt == "array" and ($val | length) > 0 then capture($val[0]; null)
    else error( $vt + " not a string or array") end;
-def scan(re):
+def export scan(re):
   match(re; "g")
   |  if (.captures|length > 0)
       then [ .captures | .[] | .string ]
@@ -113,7 +113,7 @@ def splits($re; flags): . as $s
 def splits($re): splits($re; null);
 #
 # split emits an array for backward compatibility
-def split($re; flags): [ splits($re; flags) ];
+def export split($re; flags): [ splits($re; flags) ];
 #
 # If s contains capture variables, then create a capture object and pipe it to s
 def sub($re; s):
@@ -153,8 +153,8 @@ def sub($re; s; flags):
 #
 def sub($re; s): sub($re; s; "");
 # repeated substitution of re (which may contain named captures)
-def gsub($re; s; flags): sub($re; s; flags + "g");
-def gsub($re; s): sub($re; s; "g");
+def export gsub($re; s; flags): sub($re; s; flags + "g");
+def export gsub($re; s): sub($re; s; "g");
 
 ########################################################################
 # range/3, with a `by` expression argument
@@ -175,26 +175,26 @@ def limit($n; exp):
   if $n < 0 then exp
   else label $out | foreach exp as $item ($n; .-1; $item, if . <= 0 then break $out else empty end)
   end;
-def isempty(g): 0 == ((label $go | g | (1, break $go)) // 0);
+def export isempty(g): 0 == ((label $go | g | (1, break $go)) // 0);
 def first(g): label $out | g | ., break $out;
 def last(g): reduce g as $item (null; $item);
-def nth($n; g): if $n < 0 then error("nth doesn't support negative indices") else last(limit($n + 1; g)) end;
+def export nth($n; g): if $n < 0 then error("nth doesn't support negative indices") else last(limit($n + 1; g)) end;
 def first: .[0];
 def last: .[-1];
-def nth($n): .[$n];
+def export nth($n): .[$n];
 def combinations:
     if length == 0 then [] else
         .[0][] as $x
           | (.[1:] | combinations) as $y
           | [$x] + $y
     end;
-def combinations(n):
+def export combinations(n):
     . as $dot
       | [range(n) | $dot]
       | combinations;
 # transpose a possibly jagged matrix, quickly;
 # rows are padded with nulls so the result is always rectangular.
-def transpose:
+def export transpose:
   if . == [] then []
   else . as $in
   | (map(length) | max) as $max
@@ -202,25 +202,25 @@ def transpose:
   | reduce range(0; $max) as $j
       ([]; . + [reduce range(0;$length) as $i ([]; . + [ $in[$i][$j] ] )] )
 	        end;
-def in(xs): . as $x | xs | has($x);
-def inside(xs): . as $x | xs | contains($x);
-def input: _input;
+def export in(xs): . as $x | xs | has($x);
+def export inside(xs): . as $x | xs | contains($x);
+def export input: _input;
 def repeat(exp):
      def _repeat:
          exp, _repeat;
      _repeat;
-def inputs: try repeat(_input) catch if .=="break" then empty else .|error end;
+def export inputs: try repeat(_input) catch if .=="break" then empty else .|error end;
 # like ruby's downcase - only characters A to Z are affected
-def ascii_downcase:
+def export ascii_downcase:
   explode | map( if 65 <= . and . <= 90 then . + 32  else . end) | implode;
 # like ruby's upcase - only characters a to z are affected
-def ascii_upcase:
+def export ascii_upcase:
   explode | map( if 97 <= . and . <= 122 then . - 32  else . end) | implode;
 
 # Streaming utilities
-def truncate_stream(stream):
+def export truncate_stream(stream):
   . as $n | null | stream | . as $input | if (.[0]|length) > $n then setpath([0];$input[0][$n:]) else empty end;
-def fromstream(i):
+def export fromstream(i):
   foreach i as $item (
     [null,false,null,false];
     if ($item[0]|length) == 0 then [null,false,.[2],.[3]]
@@ -260,7 +260,7 @@ def tostream:
 # the index of the target if the target is in the input array; and otherwise
 #  (-1 - ix), where ix is the insertion point that would leave the array sorted.
 # If the input is not sorted, bsearch will terminate but with irrelevant results.
-def bsearch(target):
+def export bsearch(target):
   if length == 0 then -1
   elif length == 1 then
      if target == .[0] then 0 elif target < .[0] then -1 else -2 end
@@ -304,20 +304,20 @@ def INDEX(stream; idx_expr):
       if type != "string" then tojson
       else .
       end] |= $row);
-def INDEX(idx_expr): INDEX(.[]; idx_expr);
-def JOIN($idx; idx_expr):
+def export INDEX(idx_expr): INDEX(.[]; idx_expr);
+def export JOIN($idx; idx_expr):
   [.[] | [., $idx[idx_expr]]];
-def JOIN($idx; stream; idx_expr):
+def export JOIN($idx; stream; idx_expr):
   stream | [., $idx[idx_expr]];
-def JOIN($idx; stream; idx_expr; join_expr):
+def export JOIN($idx; stream; idx_expr; join_expr):
   stream | [., $idx[idx_expr]] | join_expr;
 def IN(s): reduce (first(select(. == s)) | true) as $v (false; if . or $v then true else false end);
-def IN(src; s): reduce (src|IN(s)) as $v (false; if . or $v then true else false end);
+def export IN(src; s): reduce (src|IN(s)) as $v (false; if . or $v then true else false end);
 
 # switch:
-def nswitch(v[$nv]): %v[.];
-def which(v[$nv]): range($nv) as $idx | select(.==%v[$idx]) | $idx;
-def which1(v[$nv]): try (first(range($nv + 1) as $idx | select(.==%v[$idx]) | $idx)) catch ("No expressions match input"|error);
+def export nswitch(v[$nv]): %v[.];
+def export which(v[$nv]): range($nv) as $idx | select(.==%v[$idx]) | $idx;
+def export which1(v[$nv]): try (first(range($nv + 1) as $idx | select(.==%v[$idx]) | $idx)) catch ("No expressions match input"|error);
 # XXX Add a default arm??
 #
 # Here's where syntactic sugar would be nice.  We could define a helper
@@ -327,5 +327,5 @@ def which1(v[$nv]): try (first(range($nv + 1) as $idx | select(.==%v[$idx]) | $i
 #   switch(exp) (default => exp; case exp => exp; ...)
 #
 # which looks pretty good!
-def switch(v[$nv]): range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1];
-def switch1(v[$nv]): first(range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1]);
+def export switch(v[$nv]): range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1];
+def export switch1(v[$nv]): first(range(0; $nv; 2) as $idx | select(.==%v[$idx]) | %v[$idx + 1]);
