@@ -46,6 +46,7 @@ struct lexer_param;
 "include" { return INCLUDE; }
 "module" { return MODULE; }
 "def" { return DEF; }
+"export" { return EXPORT; }
 "if" { return IF; }
 "then" { return THEN; }
 "else" { return ELSE; }

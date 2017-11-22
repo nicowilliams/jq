@@ -58,6 +58,7 @@ struct lexer_param;
 %token DEFINEDOR "//"
 %token AS "as"
 %token DEF "def"
+%token EXPORT "export"
 %token MODULE "module"
 %token IMPORT "import"
 %token INCLUDE "include"
@@ -116,7 +117,7 @@ struct lexer_param;
 %type <blk> MkDict MkDictPair ExpD
 %type <blk> ElseBody
 %type <blk> String QQString
-%type <blk> FuncDef FuncDefs
+%type <blk> FuncDef ExportOnlyFuncDef FuncDefs
 %type <blk> Module Import Imports ImportWhat ImportFrom
 %type <blk> VarargParam Param Params Arg Args
 %type <blk> Patterns RepPatterns Pattern ArrayPats ObjPats ObjPat
@@ -332,6 +333,9 @@ FuncDefs:
 } |
 FuncDef FuncDefs {
   $$ = block_bind($1, $2, OP_IS_CALL_PSEUDO);
+} |
+ExportOnlyFuncDef FuncDefs {
+  $$ = BLOCK($1, $2);
 }
 
 Exp:
@@ -558,6 +562,17 @@ FuncDef:
 "def" IDENT '(' Params ')' ':' Exp ';' {
   $$ = gen_function(jv_string_value($2), $4, $7);
   jv_free($2);
+}
+
+ExportOnlyFuncDef:
+"def" "export" IDENT ':' Exp ';' {
+  $$ = gen_function(jv_string_value($3), gen_noop(), $5);
+  jv_free($3);
+} |
+
+"def" "export" IDENT '(' Params ')' ':' Exp ';' {
+  $$ = gen_function(jv_string_value($3), $5, $8);
+  jv_free($3);
 }
 
 /* For varargs functions, the vararg array must be last */
@@ -872,6 +887,9 @@ Keyword:
 } |
 "def" {
   $$ = jv_string("def");
+} |
+"export" {
+  $$ = jv_string("export");
 } |
 "module" {
   $$ = jv_string("module");

@@ -76,39 +76,40 @@ struct lexer_param;
     DEFINEDOR = 267,
     AS = 268,
     DEF = 269,
-    MODULE = 270,
-    IMPORT = 271,
-    INCLUDE = 272,
-    IF = 273,
-    THEN = 274,
-    ELSE = 275,
-    ELSE_IF = 276,
-    REDUCE = 277,
-    FOREACH = 278,
-    END = 279,
-    AND = 280,
-    OR = 281,
-    TRY = 282,
-    CATCH = 283,
-    LABEL = 284,
-    BREAK = 285,
-    LOC = 286,
-    SETPIPE = 287,
-    SETPLUS = 288,
-    SETMINUS = 289,
-    SETMULT = 290,
-    SETDIV = 291,
-    SETDEFINEDOR = 292,
-    LESSEQ = 293,
-    GREATEREQ = 294,
-    ALTERNATION = 295,
-    QQSTRING_START = 296,
-    QQSTRING_TEXT = 297,
-    QQSTRING_INTERP_START = 298,
-    QQSTRING_INTERP_END = 299,
-    QQSTRING_END = 300,
-    FUNCDEF = 301,
-    NONOPT = 302
+    EXPORT = 270,
+    MODULE = 271,
+    IMPORT = 272,
+    INCLUDE = 273,
+    IF = 274,
+    THEN = 275,
+    ELSE = 276,
+    ELSE_IF = 277,
+    REDUCE = 278,
+    FOREACH = 279,
+    END = 280,
+    AND = 281,
+    OR = 282,
+    TRY = 283,
+    CATCH = 284,
+    LABEL = 285,
+    BREAK = 286,
+    LOC = 287,
+    SETPIPE = 288,
+    SETPLUS = 289,
+    SETMINUS = 290,
+    SETMULT = 291,
+    SETDIV = 292,
+    SETDEFINEDOR = 293,
+    LESSEQ = 294,
+    GREATEREQ = 295,
+    ALTERNATION = 296,
+    QQSTRING_START = 297,
+    QQSTRING_TEXT = 298,
+    QQSTRING_INTERP_START = 299,
+    QQSTRING_INTERP_END = 300,
+    QQSTRING_END = 301,
+    FUNCDEF = 302,
+    NONOPT = 303
   };
 #endif
 /* Tokens.  */
@@ -124,39 +125,40 @@ struct lexer_param;
 #define DEFINEDOR 267
 #define AS 268
 #define DEF 269
-#define MODULE 270
-#define IMPORT 271
-#define INCLUDE 272
-#define IF 273
-#define THEN 274
-#define ELSE 275
-#define ELSE_IF 276
-#define REDUCE 277
-#define FOREACH 278
-#define END 279
-#define AND 280
-#define OR 281
-#define TRY 282
-#define CATCH 283
-#define LABEL 284
-#define BREAK 285
-#define LOC 286
-#define SETPIPE 287
-#define SETPLUS 288
-#define SETMINUS 289
-#define SETMULT 290
-#define SETDIV 291
-#define SETDEFINEDOR 292
-#define LESSEQ 293
-#define GREATEREQ 294
-#define ALTERNATION 295
-#define QQSTRING_START 296
-#define QQSTRING_TEXT 297
-#define QQSTRING_INTERP_START 298
-#define QQSTRING_INTERP_END 299
-#define QQSTRING_END 300
-#define FUNCDEF 301
-#define NONOPT 302
+#define EXPORT 270
+#define MODULE 271
+#define IMPORT 272
+#define INCLUDE 273
+#define IF 274
+#define THEN 275
+#define ELSE 276
+#define ELSE_IF 277
+#define REDUCE 278
+#define FOREACH 279
+#define END 280
+#define AND 281
+#define OR 282
+#define TRY 283
+#define CATCH 284
+#define LABEL 285
+#define BREAK 286
+#define LOC 287
+#define SETPIPE 288
+#define SETPLUS 289
+#define SETMINUS 290
+#define SETMULT 291
+#define SETDIV 292
+#define SETDEFINEDOR 293
+#define LESSEQ 294
+#define GREATEREQ 295
+#define ALTERNATION 296
+#define QQSTRING_START 297
+#define QQSTRING_TEXT 298
+#define QQSTRING_INTERP_START 299
+#define QQSTRING_INTERP_END 300
+#define QQSTRING_END 301
+#define FUNCDEF 302
+#define NONOPT 303
 
 /* Value type.  */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
@@ -168,7 +170,7 @@ union YYSTYPE
   jv literal;
   block blk;
 
-#line 172 "src/parser.h" /* yacc.c:1909  */
+#line 174 "src/parser.h" /* yacc.c:1909  */
 };
 
 typedef union YYSTYPE YYSTYPE;
