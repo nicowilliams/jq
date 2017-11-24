@@ -27,6 +27,8 @@
 struct inst {
   struct inst* next;
   struct inst* prev;
+  struct inst* next_unbound;
+  struct inst* prev_unbound;
 
   opcode op;
 
@@ -64,11 +66,13 @@ struct inst {
   struct bytecode* compiled;
 
   int bytecode_pos; // position just after this insn
+
+  jv unbound;
 };
 
 static inst* inst_new(opcode op) {
   inst* i = jv_mem_alloc(sizeof(inst));
-  i->next = i->prev = 0;
+  i->next = i->prev = i->next_unbound = i->prev_unbound = 0;
   i->op = op;
   i->bytecode_pos = -1;
   i->bound_by = 0;
@@ -79,6 +83,7 @@ static inst* inst_new(opcode op) {
   i->arglist = gen_noop();
   i->source = UNKNOWN_LOCATION;
   i->locfile = 0;
+  i->unbound = jv_invalid();
   return i;
 }
 
@@ -91,6 +96,11 @@ static void inst_free(struct inst* i) {
   if (opcode_describe(i->op)->flags & OP_HAS_CONSTANT) {
     jv_free(i->imm.constant);
   }
+  jv_free(i->unbound);
+  if (i->next_unbound)
+    i->next_unbound->prev_unbound = 0;
+  if (i->prev_unbound)
+    i->prev_unbound->next_unbound = 0;
   jv_mem_free(i);
 }
 
@@ -110,6 +120,12 @@ static inst* block_take(block* b) {
     i->next->prev = 0;
     b->first = i->next;
     i->next = 0;
+    if (i->next_unbound)
+      i->next_unbound->prev_unbound = i->prev_unbound; // XXX 0
+    if (i->prev_unbound)
+      i->prev_unbound->next_unbound = i->next_unbound; // XXX No
+    i->next_unbound = 0;
+    i->prev_unbound = 0;
   } else {
     b->first = 0;
     b->last = 0;
@@ -238,6 +254,30 @@ static void inst_join(inst* a, inst* b) {
   assert(!b->prev);
   a->next = b;
   b->prev = a;
+  if (a->symbol && !a->bound_by) {
+    if (b->symbol && !b->bound_by) {
+      a->next_unbound = b;
+      b->prev_unbound = a;
+    } else {
+      /* Skip b */
+      a->next_unbound = b->next_unbound;
+      if (b->next_unbound)
+        b->next_unbound->prev_unbound = a;
+    }
+    // else skip a
+  } else if (a->prev_unbound) {
+    if (b->symbol && !b->bound_by) {
+      a->prev_unbound->next_unbound = b;
+      b->prev_unbound = a->prev_unbound;
+    } else {
+      /* Skip b */
+      a->next_unbound = b->next_unbound;
+      if (b->next_unbound)
+        b->next_unbound->prev_unbound = a;
+    }
+  }
+  a->next_unbound = b;
+  b->prev_unbound = a;
 }
 
 void block_append(block* b, block b2) {
@@ -341,7 +381,9 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
   if (binder.first->nformals == -1)
     binder.first->nformals = block_count_formals(binder);
   int nrefs = 0;
-  for (inst* i = body.first; i; i = i->next) {
+  inst *next_unbound;
+  for (inst* i = body.first; i; i = next_unbound) {
+    next_unbound = i->next_unbound;
     int flags = opcode_describe(i->op)->flags;
     if ((flags & bindflags) == (bindflags & ~OP_BIND_WILDCARD) && i->bound_by == 0 &&
         (!strcmp(i->symbol, binder.first->symbol) ||
@@ -375,6 +417,17 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
      * the arguments are const, then apply it here to get better const-
      * folding, then we can get rid of the old const-folding.
      */
+#if 0
+    // XXX Causes an infinite loop?!?!
+    if (i->bound_by) {
+      if (i->next_unbound)
+        i->next_unbound->prev_unbound = i->prev_unbound;
+      if (i->prev_unbound)
+        i->prev_unbound->next_unbound = i->next_unbound;
+      i->prev_unbound = 0;
+      i->next_unbound = 0;
+    }
+#endif
   }
   return nrefs;
 }
@@ -553,6 +606,44 @@ block gen_import_meta(block import, block metadata) {
   return import;
 }
 
+static void hash_unbounds(block b) {
+  if (b.first == 0)
+    return;
+  jv unbound = b.first->unbound;
+  if (!jv_is_valid(unbound))
+    unbound = jv_object();
+  b.first->unbound = jv_invalid();
+  for (inst* i = b.first; i; i = i->next_unbound)
+    if (i->symbol)
+      unbound = jv_object_set(unbound, jv_string(i->symbol), jv_true());
+  b.first->unbound = unbound;
+}
+
+block block_link_unbounds(block b, inst *prev, inst **lastp) {
+  if (prev == NULL)
+    prev = b.first;
+  inst *last;
+  inst *i;
+  for (i = b.first; i; i = i->next) {
+    if (i->bound_by != 0 || i->symbol == 0)
+      continue;
+
+    i->prev_unbound = prev;
+    if (prev)
+      prev->next_unbound = i;
+    i->next_unbound = 0;
+    (void) block_link_unbounds(i->subfn, last = i, &last);
+    (void) block_link_unbounds(i->arglist, last, &last);
+    prev = last;
+    if (lastp)
+      *lastp = last;
+    if (b.last)
+      b.last->prev_unbound = last;
+  }
+  hash_unbounds(b);
+  return b;
+}
+
 block gen_function(const char* name, block formals, block body) {
   inst* i = inst_new(CLOSURE_CREATE);
   for (inst* i = formals.last; i; i = i->prev) {
@@ -560,19 +651,20 @@ block gen_function(const char* name, block formals, block body) {
       assert(i->prev->op == CLOSURE_PARAM_VARARG_ARRAY);
       body = BLOCK(gen_op_simple(DUP), gen_op_simple(LOAD_VARARG_COUNT),
                    block_bind(gen_op_unbound(STOREV, i->symbol),
-                              body, OP_HAS_VARIABLE));
+                              block_link_unbounds(body, NULL, NULL), OP_HAS_VARIABLE));
+      body = block_link_unbounds(body, NULL, NULL);
       continue;
     }
     if (i->op == CLOSURE_PARAM_REGULAR) {
       i->op = CLOSURE_PARAM;
       body = gen_var_binding(gen_call(i->symbol, gen_noop()), i->symbol, body);
     }
-    block_bind_subblock(inst_block(i), body, OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
+    block_bind_subblock(inst_block(i), block_link_unbounds(body, NULL, NULL), OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   }
   i->subfn = body;
   i->symbol = strdup(name);
   i->arglist = formals;
-  block b = inst_block(i);
+  block b = block_link_unbounds(inst_block(i), NULL, NULL);
   block_bind_subblock(b, b, OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   return b;
 }

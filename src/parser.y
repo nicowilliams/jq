@@ -299,6 +299,7 @@ static block gen_update(block object, block val, int optype) {
 %%
 TopLevel:
 Module Imports Exp {
+  $3 = block_link_unbounds($3, NULL, NULL);
   *answer = BLOCK($1, $2, gen_op_simple(TOP), $3);
 } |
 Module Imports FuncDefs {
@@ -340,6 +341,7 @@ ExportOnlyFuncDef FuncDefs {
 
 Exp:
 FuncDef Exp %prec FUNCDEF {
+  $2 = block_link_unbounds($2, NULL, NULL);
   $$ = block_bind_referenced($1, $2, OP_IS_CALL_PSEUDO);
 } |
 
@@ -747,7 +749,11 @@ String {
   $$ = $1;
 } |
 FORMAT {
+#if 0
+  $$ = gen_location(@$, locations, gen_format(gen_noop(), $1));
+#else
   $$ = gen_format(gen_noop(), $1);
+#endif
 } |
 '(' Exp ')' {
   $$ = $2;
