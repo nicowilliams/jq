@@ -47,6 +47,7 @@ struct lexer_param;
 
 
 %token INVALID_CHARACTER
+%token BADNUM
 %token <literal> IDENT
 %token <literal> FIELD
 %token <literal> LITERAL
@@ -708,6 +709,10 @@ Term '[' ':' Exp ']' %prec NONOPT {
 } |
 LITERAL {
   $$ = gen_const($1);
+} |
+BADNUM {
+  FAIL(@$, "Invalid numeric literal");
+  $$ = gen_noop();
 } |
 String {
   $$ = $1;

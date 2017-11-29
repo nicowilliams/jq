@@ -86,9 +86,11 @@ struct lexer_param;
   yylval->literal = jv_string_sized(yytext + 1, yyleng - 1); return FORMAT;
 }
 
-[0-9.]+([eE][+-]?[0-9]+)? {
+[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)? {
    yylval->literal = jv_parse_sized(yytext, yyleng); return LITERAL;
 }
+
+[0-9]+\.([eE][+-]?[0-9]+)? { return BADNUM; }
 
 "\"" {
   yy_push_state(IN_QQSTRING, yyscanner);
