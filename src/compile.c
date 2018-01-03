@@ -27,8 +27,6 @@
 struct inst {
   struct inst* next;
   struct inst* prev;
-  struct inst* next_unbound;
-  struct inst* prev_unbound;
 
   opcode op;
 
@@ -54,6 +52,16 @@ struct inst {
   // body which are unboudn and refer to "definition" by name.
   struct inst* bound_by;
   char* symbol;
+
+  /*
+   * We want to optimize linking from an accidentally O(N^2) process to an O(N)
+   * process.  To do this we'll link unbound instructions via these two
+   * pointers.  Then to bind we'll recurse down via these two pointers and the
+   * subfn/arglist blocks.  The idea is to make it so we only have to visit a)
+   * subfns/args and b) in each of those only unbound instructions.
+   */
+  struct inst* next_unbound;
+  struct inst* prev_unbound;
 
   int nformals;
   int nactuals;
@@ -121,11 +129,10 @@ static inst* block_take(block* b) {
     b->first = i->next;
     i->next = 0;
     if (i->next_unbound)
-      i->next_unbound->prev_unbound = i->prev_unbound; // XXX 0
-    if (i->prev_unbound)
-      i->prev_unbound->next_unbound = i->next_unbound; // XXX No
+      i->next_unbound->prev_unbound = 0;
     i->next_unbound = 0;
-    i->prev_unbound = 0;
+    assert(i->prev_unbound == 0);
+    i->prev_unbound = 0; // i->prev_unbound better be == 0 already
   } else {
     b->first = 0;
     b->last = 0;
@@ -254,30 +261,38 @@ static void inst_join(inst* a, inst* b) {
   assert(!b->prev);
   a->next = b;
   b->prev = a;
-  if (a->symbol && !a->bound_by) {
-    if (b->symbol && !b->bound_by) {
-      a->next_unbound = b;
-      b->prev_unbound = a;
-    } else {
-      /* Skip b */
-      a->next_unbound = b->next_unbound;
-      if (b->next_unbound)
-        b->next_unbound->prev_unbound = a;
-    }
-    // else skip a
-  } else if (a->prev_unbound) {
-    if (b->symbol && !b->bound_by) {
-      a->prev_unbound->next_unbound = b;
-      b->prev_unbound = a->prev_unbound;
-    } else {
-      /* Skip b */
-      a->next_unbound = b->next_unbound;
-      if (b->next_unbound)
-        b->next_unbound->prev_unbound = a;
-    }
+
+  // The workhorse of unbound link maintenance: join the unbound lists that `a`
+  // and `b` are notionally part of.
+
+  inst *pa = a;
+  inst *pb = b;
+
+  // Find an inst backwards from `a` that we can link `pb` with
+  if (!a->symbol || a->bound_by) {
+    if (a->prev_unbound)
+      pa = a->prev_unbound;
+    else
+      for (pa = a; pa->prev && pa->symbol && !pa->bound_by; )
+        pa = pa->prev;
   }
-  a->next_unbound = b;
-  b->prev_unbound = a;
+
+  // Find an inst forwards from `b` that we can link `pa` with
+  if (!b->symbol || b->bound_by) {
+    if (b->next_unbound) 
+      pb = b->next_unbound;
+    else
+      for (pb = b; pb->next && pb->symbol && !pb->bound_by; )
+        pb = pb->next;
+  }
+
+  assert(pa->next_unbound == 0);
+  assert(pb->prev_unbound == 0);
+  if ((pa->prev || (pa->symbol && !pa->bound_by)) &&
+      (pb->next || (pb->symbol && !pb->bound_by))) {
+    pa->next_unbound = pb;
+    pb->prev_unbound = pa;
+  }
 }
 
 void block_append(block* b, block b2) {
@@ -417,9 +432,9 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
      * the arguments are const, then apply it here to get better const-
      * folding, then we can get rid of the old const-folding.
      */
-#if 0
-    // XXX Causes an infinite loop?!?!
-    if (i->bound_by) {
+
+    if (i->symbol && i->bound_by) {
+      // XXX Causes an infinite loop?!?!
       if (i->next_unbound)
         i->next_unbound->prev_unbound = i->prev_unbound;
       if (i->prev_unbound)
@@ -427,7 +442,6 @@ static int block_bind_subblock(block binder, block body, int bindflags, int brea
       i->prev_unbound = 0;
       i->next_unbound = 0;
     }
-#endif
   }
   return nrefs;
 }
@@ -661,9 +675,9 @@ block gen_function(const char* name, block formals, block body) {
     }
     block_bind_subblock(inst_block(i), block_link_unbounds(body, NULL, NULL), OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   }
-  i->subfn = body;
+  i->subfn = body; // XXX Make sure that body has a next_unbound if any of the insts in body are unbound!
   i->symbol = strdup(name);
-  i->arglist = formals;
+  i->arglist = formals; // XXX Make sure that formals has a next_unbound if any of the insts in formals are unbound!
   block b = block_link_unbounds(inst_block(i), NULL, NULL);
   block_bind_subblock(b, b, OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   return b;
