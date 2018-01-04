@@ -2422,7 +2422,7 @@ yyreduce:
         case 2:
 #line 301 "src/parser.y" /* yacc.c:1646  */
     {
-  (yyvsp[0].blk) = block_link_unbounds((yyvsp[0].blk), NULL, NULL);
+  (yyvsp[0].blk) = block_link_unbounds((yyvsp[0].blk));
   *answer = BLOCK((yyvsp[-2].blk), (yyvsp[-1].blk), gen_op_simple(TOP), (yyvsp[0].blk));
 }
 #line 2429 "src/parser.c" /* yacc.c:1646  */
@@ -2501,7 +2501,7 @@ yyreduce:
   case 11:
 #line 343 "src/parser.y" /* yacc.c:1646  */
     {
-  (yyvsp[0].blk) = block_link_unbounds((yyvsp[0].blk), NULL, NULL);
+  (yyvsp[0].blk) = block_link_unbounds((yyvsp[0].blk));
   (yyval.blk) = block_bind_referenced((yyvsp[-1].blk), (yyvsp[0].blk), OP_IS_CALL_PSEUDO);
 }
 #line 2508 "src/parser.c" /* yacc.c:1646  */

@@ -25,7 +25,7 @@ int block_is_const(block b);
 int block_is_const_inf(block b);
 jv_kind block_const_kind(block b);
 jv block_const(block b);
-block block_link_unbounds(block, inst *, inst **);
+block block_link_unbounds(block);
 block gen_op_target(opcode op, block target);
 block gen_op_unbound(opcode op, const char* name);
 block gen_op_bound(opcode op, block binder);

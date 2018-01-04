@@ -262,6 +262,7 @@ static void inst_join(inst* a, inst* b) {
   a->next = b;
   b->prev = a;
 
+#if 0
   // The workhorse of unbound link maintenance: join the unbound lists that `a`
   // and `b` are notionally part of.
 
@@ -293,6 +294,7 @@ static void inst_join(inst* a, inst* b) {
     pa->next_unbound = pb;
     pb->prev_unbound = pa;
   }
+#endif
 }
 
 void block_append(block* b, block b2) {
@@ -621,6 +623,7 @@ block gen_import_meta(block import, block metadata) {
 }
 
 static void hash_unbounds(block b) {
+#if 0
   if (b.first == 0)
     return;
   jv unbound = b.first->unbound;
@@ -631,8 +634,33 @@ static void hash_unbounds(block b) {
     if (i->symbol)
       unbound = jv_object_set(unbound, jv_string(i->symbol), jv_true());
   b.first->unbound = unbound;
+#endif
 }
 
+block block_link_unbounds(block b) {
+  inst *i, *prev, *last;
+  for (i = prev = b.first, last = 0; i; i = i->next) {
+    if (i->subfn.first)
+      i->subfn = block_link_unbounds(i->subfn);
+    if (i->arglist.first)
+      i->arglist = block_link_unbounds(i->arglist);
+    if (i->bound_by != 0 || i->symbol == 0)
+      continue;
+    if (i == b.first)
+      continue;
+    i->prev_unbound = prev;
+    if (prev)
+      prev->next_unbound = i;
+    prev = i;
+    last = i;
+  }
+  if (last)
+    b.last->prev_unbound = last; // b.last->prev_unbound->next_unbound may be 0 though
+  hash_unbounds(b);
+  return b;
+}
+
+#if 0
 block block_link_unbounds(block b, inst *prev, inst **lastp) {
   if (prev == NULL)
     prev = b.first;
@@ -657,6 +685,7 @@ block block_link_unbounds(block b, inst *prev, inst **lastp) {
   hash_unbounds(b);
   return b;
 }
+#endif
 
 block gen_function(const char* name, block formals, block body) {
   inst* i = inst_new(CLOSURE_CREATE);
@@ -665,20 +694,20 @@ block gen_function(const char* name, block formals, block body) {
       assert(i->prev->op == CLOSURE_PARAM_VARARG_ARRAY);
       body = BLOCK(gen_op_simple(DUP), gen_op_simple(LOAD_VARARG_COUNT),
                    block_bind(gen_op_unbound(STOREV, i->symbol),
-                              block_link_unbounds(body, NULL, NULL), OP_HAS_VARIABLE));
-      body = block_link_unbounds(body, NULL, NULL);
+                              block_link_unbounds(body), OP_HAS_VARIABLE));
+      body = block_link_unbounds(body);
       continue;
     }
     if (i->op == CLOSURE_PARAM_REGULAR) {
       i->op = CLOSURE_PARAM;
       body = gen_var_binding(gen_call(i->symbol, gen_noop()), i->symbol, body);
     }
-    block_bind_subblock(inst_block(i), block_link_unbounds(body, NULL, NULL), OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
+    block_bind_subblock(inst_block(i), block_link_unbounds(body), OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   }
   i->subfn = body; // XXX Make sure that body has a next_unbound if any of the insts in body are unbound!
   i->symbol = strdup(name);
   i->arglist = formals; // XXX Make sure that formals has a next_unbound if any of the insts in formals are unbound!
-  block b = block_link_unbounds(inst_block(i), NULL, NULL);
+  block b = block_link_unbounds(inst_block(i));
   block_bind_subblock(b, b, OP_IS_CALL_PSEUDO | OP_HAS_BINDING, 0);
   return b;
 }

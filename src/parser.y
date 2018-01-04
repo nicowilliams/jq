@@ -299,7 +299,7 @@ static block gen_update(block object, block val, int optype) {
 %%
 TopLevel:
 Module Imports Exp {
-  $3 = block_link_unbounds($3, NULL, NULL);
+  $3 = block_link_unbounds($3);
   *answer = BLOCK($1, $2, gen_op_simple(TOP), $3);
 } |
 Module Imports FuncDefs {
@@ -341,7 +341,7 @@ ExportOnlyFuncDef FuncDefs {
 
 Exp:
 FuncDef Exp %prec FUNCDEF {
-  $2 = block_link_unbounds($2, NULL, NULL);
+  $2 = block_link_unbounds($2);
   $$ = block_bind_referenced($1, $2, OP_IS_CALL_PSEUDO);
 } |
 
