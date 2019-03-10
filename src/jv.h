@@ -38,7 +38,7 @@ typedef struct {
 
 jv_kind jv_get_kind(jv);
 const char* jv_kind_name(jv_kind);
-static int jv_is_valid(jv x) { return jv_get_kind(x) != JV_KIND_INVALID; }
+static int jv_is_valid(jv x) { return ((x).kind_flags & 0xf) != JV_KIND_INVALID; }
 
 jv jv_copy(jv);
 void jv_free(jv);
@@ -68,6 +68,7 @@ jv jv_array(void);
 jv jv_array_sized(int);
 int jv_array_length(jv);
 jv jv_array_get(jv, int);
+int jv_array_contains(jv a, jv b);
 jv jv_array_set(jv, int, jv);
 jv jv_array_append(jv, jv);
 jv jv_array_concat(jv, jv);
@@ -124,6 +125,7 @@ jv jv_string_implode(jv j);
 jv jv_object(void);
 jv jv_object_get(jv object, jv key);
 int jv_object_has(jv object, jv key);
+int jv_object_contains(jv a, jv b);
 jv jv_object_set(jv object, jv key, jv value);
 jv jv_object_delete(jv object, jv key);
 int jv_object_length(jv object);
