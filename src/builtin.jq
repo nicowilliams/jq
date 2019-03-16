@@ -1,3 +1,4 @@
+def fhwrite($fh; $output): $fh|fhwrite($output);
 def halt_error: halt_error(5);
 def error(msg): msg|error;
 def map(f): [.[] | f];
@@ -273,3 +274,18 @@ def JOIN($idx; stream; idx_expr; join_expr):
   stream | [., $idx[idx_expr]] | join_expr;
 def IN(s): any(s == .; .);
 def IN(src; s): any(src == s; .);
+
+def fhinterleave:
+  label $out | repeat(.[] | if fheof then break $out else fhread, if fheof then break $out else empty end end);
+
+def fhinterleave_repeat:
+  repeat(.[] | . as $fh | (fhread // (fhreset | $fh | fhread)));
+
+def fhinterleave_pad($pad):
+  . as $all  |
+  label $out | repeat(
+  .[] |
+  if fheof then
+    if $all|all(fheof) then $pad, break $out else $pad end
+  else fhread // if $all|all(fheof) then $pad, break $out elif fheof then $pad else empty end
+  end);
