@@ -1814,6 +1814,7 @@ static block bind_bytecoded_builtins(block b) {
       {"coeval", gen_op_simple(COEVAL)},
       {"cocreate", gen_op_simple(COCREATE)},
       {"cooutput", gen_op_simple(CORET)},
+      {"unwinding", gen_op_simple(UNWINDING)},
     };
     for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
       /*

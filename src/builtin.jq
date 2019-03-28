@@ -269,6 +269,8 @@ def walk(f):
   else f
   end;
 
+def unwind(protect):
+  . as $dot | if unwinding then protect | empty else $dot end;
 # SQL-ish operators here:
 def INDEX(stream; idx_expr):
   reduce stream as $row ({}; .[$row|idx_expr|tostring] = $row);

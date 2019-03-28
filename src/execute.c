@@ -661,7 +661,8 @@ jv jq_next(jq_state *jq) {
     }
 
     case STOREVN:
-        stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, pc - 1, stack_get_pos(jq));
+      /* fallthru */
     case STOREV: {
       uint16_t level = *pc++;
       uint16_t v = *pc++;
@@ -808,6 +809,7 @@ jv jq_next(jq_state *jq) {
     }
 
     case EACH:
+      /* fallthru */
     case EACH_OPT: {
       jv container = stack_pop(jq);
       // detect invalid path expression like path(reverse | .[])
@@ -821,8 +823,8 @@ jv jq_next(jq_state *jq) {
       }
       stack_push(jq, container);
       stack_push(jq, jv_number(-1));
-      // fallthrough
     }
+    /* fallthru */
     case ON_BACKTRACK(EACH):
     case ON_BACKTRACK(EACH_OPT): {
       int idx = jv_number_value(stack_pop(jq));
@@ -1014,6 +1016,22 @@ jv jq_next(jq_state *jq) {
       new_frame->retaddr = retaddr;
       pc = new_frame->bc->code;
       stack_push(jq, input);
+      break;
+    }
+
+    case UNWINDING: {
+      jv_free(stack_pop(jq));
+      stack_push(jq, jv_false());
+      stack_save(jq, pc - 1, stack_get_pos(jq));
+      break;
+    }
+    case ON_BACKTRACK(UNWINDING): {
+      jv done = stack_pop(jq);
+      if (jv_get_kind(done) == JV_KIND_TRUE)
+        goto do_backtrack;
+      assert(jv_get_kind(done) == JV_KIND_FALSE);
+      stack_push(jq, jv_true());
+      stack_save(jq, pc - 1, stack_get_pos(jq));
       break;
     }
 
