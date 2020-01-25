@@ -1874,7 +1874,6 @@ static block public_inlines(void) {
       {"empty", gen_op_simple(BACKTRACK)},
       {"not", gen_condbranch(gen_const(jv_false()),
                              gen_const(jv_true()))},
-      {"unwinding", gen_op_simple(UNWINDING)},
     };
     for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
       builtins = BLOCK(builtins, gen_function(builtin_defs[i].name, gen_noop(),
@@ -1883,6 +1882,7 @@ static block public_inlines(void) {
   }
   {
     struct bytecoded_builtin builtin_def_1arg[] = {
+      {"catching", gen_catching(gen_call("arg", gen_noop()))},
     };
     for (unsigned i=0; i<sizeof(builtin_def_1arg)/sizeof(builtin_def_1arg[0]); i++) {
       builtins = BLOCK(builtins, gen_function(builtin_def_1arg[i].name,

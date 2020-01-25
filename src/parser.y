@@ -72,7 +72,7 @@ struct lexer_param;
 %token AND "and"
 %token OR "or"
 %token TRY "try"
-%token CATCH "catch"
+%token CATCH_TOKEN "catch"
 %token LABEL "label"
 %token BREAK "break"
 %token LOC "__loc__"

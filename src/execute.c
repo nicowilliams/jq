@@ -1093,50 +1093,40 @@ jv jq_next(jq_state *jq) {
       break;
     }
 
-    case UNWINDING: {
-      jv_free(stack_pop(jq));
-      stack_push(jq, jv_false());
+    case CATCH: {
+      jv in = stack_pop(jq);
+
+      // make a forkpoint
       stack_save(jq, pc - 1, stack_get_pos(jq));
+      // jump over the catch code
+      uint16_t offset = *pc++;
+      pc += offset;
+
+      // pass on the input
+      stack_push(jq, in);
       break;
     }
-    case ON_BACKTRACK(UNWINDING): {
-      jv done = stack_pop(jq);
-      /*
-       * done is false the first time we backtrack to an UNWINDING because the
-       * above case will have pushed false.
-       *
-       * In that case we'll go forth so we can run an unwind-protect handler.
-       *
-       * But first we'll push a value so that when the unwind-protect handler
-       * backtracks we then backtrack too.
-       */
-      if (jv_get_kind(done) == JV_KIND_FALSE) {
-        if (!raising) {
-          /*
-           * We push true because when we backtrack here it will be because an
-           * unwind-protect handler is done and so we'll take the else brack if
-           * the if jv_get_kind(done) == JV_KIND_FALSE) above.
-           */
-          stack_push(jq, jv_true());
-        } else {
-          /*
-           * We'll push the error's message, and we wrap it in an array in case
-           * the message was a jv_true().
-           */
-          stack_push(jq, JV_ARRAY(jv_invalid_get_msg(jq->error)));
-          jq->error = jv_null();
-        }
-        stack_save(jq, pc - 1, stack_get_pos(jq));
-      } else {
-        /*
-         * We're done then.  If done is an array, the one element will be an
-         * error message.
-         */
-        if (jv_get_kind(done) == JV_KIND_ARRAY)
-          set_error(jq, jv_invalid_with_msg(jv_array_get(done, 0)));
+    case ON_BACKTRACK(CATCH): {
+      if (!raising) {
+        // everything's cool, 
+        // go on backtracking
         goto do_backtrack;
+      } else {
+
+        // make a forkpoint for the next backtrack
+        stack_save(jq, pc - 1, stack_get_pos(jq));
+
+        // ignore the offset this time
+        pc++;
+
+        // push the error on the stack for the handler input
+        stack_push(jq, jv_invalid_get_msg(jq->error));
+        // clear the error condition
+        jq->error = jv_null();
+
+        // go on to the handler
+        break;
       }
-      break;
     }
 
     case START: {

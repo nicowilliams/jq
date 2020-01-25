@@ -1269,7 +1269,7 @@ YY_RULE_SETUP
 case 21:
 YY_RULE_SETUP
 #line 61 "src/lexer.l"
-{ return CATCH; }
+{ return CATCH_TOKEN; }
 	YY_BREAK
 case 22:
 YY_RULE_SETUP

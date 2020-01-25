@@ -317,6 +317,11 @@ block gen_dictpair(block k, block v) {
   return BLOCK(gen_subexp(k), gen_subexp(v), gen_op_simple(INSERT));
 }
 
+block gen_catching(block handler) {
+  block catch = gen_op_target(CATCH, handler);
+  return BLOCK(catch, handler);
+}
+
 
 static void inst_join(inst* a, inst* b) {
   assert(a && b);

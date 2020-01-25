@@ -58,7 +58,7 @@ struct lexer_param;
 "foreach" { return FOREACH; }
 "//" { return DEFINEDOR; }
 "try" { return TRY; }
-"catch" { return CATCH; }
+"catch" { return CATCH_TOKEN; }
 "label" { return LABEL; }
 "break" { return BREAK; }
 "__loc__" { return LOC; }

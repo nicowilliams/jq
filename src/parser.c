@@ -170,7 +170,7 @@ struct lexer_param;
     AND = 281,
     OR = 282,
     TRY = 283,
-    CATCH = 284,
+    CATCH_TOKEN = 284,
     LABEL = 285,
     BREAK = 286,
     LOC = 287,
@@ -221,7 +221,7 @@ struct lexer_param;
 #define AND 281
 #define OR 282
 #define TRY 283
-#define CATCH 284
+#define CATCH_TOKEN 284
 #define LABEL 285
 #define BREAK 286
 #define LOC 287

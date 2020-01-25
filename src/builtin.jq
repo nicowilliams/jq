@@ -272,13 +272,13 @@ def walk(f):
 # Run `protect` no matter what when backtracking through a call to this
 # function.  `protect` gets called with `true` if no error was raised,
 # else with the error (wrapped in an array) that was raised.
-def _unwind(protect):
-  . as $dot |
-  unwinding |
-  if .==false then $dot
-  else protect
-  end;
-def unwind(protect): _unwind(protect|empty);
+# def _unwind(protect):
+#  . as $dot |
+#  unwinding |
+#  if .==false then $dot
+#  else protect
+#  end;
+def unwind(protect): .; # _unwind(protect|empty);
 
 # SQL-ish operators here:
 def INDEX(stream; idx_expr):
@@ -295,7 +295,7 @@ def IN(src; s): any(src == s; .);
 
 def _try_finally(e; h; f):
   . as $dot |
-  unwinding |
+  # unwinding |
   if .==false then $dot|try(e; h)
   else f
   end;
@@ -362,8 +362,11 @@ def eval: . as $dot | null | eval($dot; {}; {});
 def coeval: . as $program | null | coeval($program; {}; {});
 
 def coexp(cexp):
-  . as $dot |
-  try corun(coexp) catch (fhwrite($dot), .);  # in parent starting a coroutine throws its handle
+  . as $dot 
+  | try(corun(cexp);.)                     # in parent starting a coroutine throws its handle
+  | . as $desc
+  | fhwrite($dot)   
+  | unwind($desc | fhclose);
 
 def fhinterleave:
   label $out | repeat(.[] | try fhread catch if .=="EOF" then break $out else error end);
