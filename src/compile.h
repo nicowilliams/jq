@@ -63,6 +63,7 @@ block gen_destructure_alt(block matcher);
 
 block gen_cond(block cond, block iftrue, block iffalse);
 block gen_try(block exp, block handler);
+block gen_try_finally(block exp, block handler, block finally);
 block gen_label(const char *label, block exp);
 
 block gen_cbinding(const struct cfunction* functions, int nfunctions, block b);

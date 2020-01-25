@@ -293,12 +293,13 @@ def JOIN($idx; stream; idx_expr; join_expr):
 def IN(s): any(s == .; .);
 def IN(src; s): any(src == s; .);
 
+def protect(finally, map_error):
+  catching( . as $e | {.error = ., .raising = true} | finally | $e | map_error )
+  | ( ., {.raising = false} | finally | empty );
+
 def _try_finally(e; h; f):
-  . as $dot |
-  # unwinding |
-  if .==false then $dot|try(e; h)
-  else f
-  end;
+  protect(finally, catch)
+  | what;;
 
 # Default I/O policy evaluator.
 #
