@@ -1079,7 +1079,12 @@ static jv f_error(jq_state *jq, jv input) {
 
 // FIXME Should autoconf check for this!
 #ifndef WIN32
-extern char **environ;
+#  ifdef __APPLE__
+#    include <crt_externs.h>
+#    define environ (*_NSGetEnviron())
+#  else
+     extern char ** environ;
+#  endif
 #endif
 
 static jv f_env(jq_state *jq, jv input) {
@@ -1821,24 +1826,68 @@ static const struct cfunction function_list[] = {
 
 
 struct bytecoded_builtin { const char* name; block code; };
-static block private_bytecoded_builtins(void) {
+static block private_inlines(void) {
   block builtins = gen_noop();
+  /*
+    * The following are all special bytecoded builtins that only jq-coded
+    * builtins should be able to use.  User programs should not be able to use
+    * them, otherwise they could corrupt jq VMs.
+    *
+    * We'll inline these.
+    */
   {
-    /*
-     * The following are all special bytecoded builtins that only jq-coded
-     * builtins should be able to use.  User programs should not be able to use
-     * them, otherwise they could corrupt jq VMs.
-     *
-     * We'll inline these.
-     */
     struct bytecoded_builtin builtin_defs[] = {
       {"coeval", gen_op_simple(COEVAL)},
-      {"cocreate", gen_op_simple(COCREATE)},
-      {"cooutput", gen_op_simple(CORET)},
     };
     for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
       builtins = BLOCK(builtins, gen_function(builtin_defs[i].name, gen_noop(),
                                               builtin_defs[i].code));
+    }
+  }
+  {
+    struct bytecoded_builtin builtin_def_1arg[] = {
+      {"corun", BLOCK(gen_op_simple(START),
+                      gen_call("arg", gen_noop()),
+                      gen_op_simple(OUT),
+                      gen_op_simple(BACKTRACK))},
+    };
+    for (unsigned i=0; i<sizeof(builtin_def_1arg)/sizeof(builtin_def_1arg[0]); i++) {
+      builtins = BLOCK(builtins, gen_function(builtin_def_1arg[i].name,
+                                              gen_param("arg"),
+                                              builtin_def_1arg[i].code));
+    }
+  }
+  return builtins;
+}
+
+static block public_inlines(void) {
+  block builtins = gen_noop();
+  /*
+    * The following are all special bytecoded builtins that only jq-coded
+    * builtins should be able to use.  User programs should not be able to use
+    * them, otherwise they could corrupt jq VMs.
+    *
+    * We'll inline these.
+    */
+  {
+    struct bytecoded_builtin builtin_defs[] = {
+      {"empty", gen_op_simple(BACKTRACK)},
+      {"not", gen_condbranch(gen_const(jv_false()),
+                             gen_const(jv_true()))},
+    };
+    for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
+      builtins = BLOCK(builtins, gen_function(builtin_defs[i].name, gen_noop(),
+                                              builtin_defs[i].code));
+    }
+  }
+  {
+    struct bytecoded_builtin builtin_def_1arg[] = {
+      {"catching", gen_catching(gen_call("arg", gen_noop()))},
+    };
+    for (unsigned i=0; i<sizeof(builtin_def_1arg)/sizeof(builtin_def_1arg[0]); i++) {
+      builtins = BLOCK(builtins, gen_function(builtin_def_1arg[i].name,
+                                              gen_param("arg"),
+                                              builtin_def_1arg[i].code));
     }
   }
   return builtins;
@@ -1848,16 +1897,12 @@ static block bind_bytecoded_builtins(block b) {
   block builtins = gen_noop();
   {
     struct bytecoded_builtin builtin_defs[] = {
-      {"empty", gen_op_simple(BACKTRACK)},
-      {"not", gen_condbranch(gen_const(jv_false()),
-                             gen_const(jv_true()))},
-      {"unwinding", gen_op_simple(UNWINDING)},
     };
     for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
       /*
        * This results in a CALL_JQ instruction to call a function that has two
-       * instructions, the one instruction (e.g., BACKTRACK), and a RET.  So we
-       * use up to three instructions (the RET doesn't execute in the case of
+       * instructions, the one instruction (e.g., BACKTRACK), and a RET_JQ.  So we
+       * use up to three instructions (the RET_JQ doesn't execute in the case of
        * `empty`, naturally) to execute just one.
        *
        * We should inline `empty` and `unwinding` at least.
@@ -1929,28 +1974,44 @@ static const char jq_builtins[] =
 #undef LIBM_DD
 
 
-static block gen_builtin_list(block builtins) {
-  jv list = jv_array_append(block_list_funcs(builtins, 1), jv_string("builtins/0"));
+static block gen_builtin_list(block builtins, block inlines) {
+  jv list = block_list_funcs(inlines, 1);
+  list = jv_array_concat(list, block_list_funcs(builtins, 1));
+  list = jv_array_append(list, jv_string("builtins/0"));
   return BLOCK(builtins, gen_function("builtins", gen_noop(), gen_const(list)));
 }
 
 extern void block_inline(block inlines, block body);
 
 int builtins_bind(jq_state *jq, block* bb) {
-  block builtins, inlines;
+  block builtins, in_priv, in_pub;
   struct locfile* src = locfile_init(jq, "<builtin>", jq_builtins, sizeof(jq_builtins)-1);
   int nerrors = jq_parse_library(src, &builtins);
   assert(!nerrors);
   locfile_free(src);
 
-  inlines = private_bytecoded_builtins();
+  in_pub = public_inlines();
+  in_priv = private_inlines();
+
   builtins = bind_bytecoded_builtins(builtins);
   builtins = gen_cbinding(function_list, sizeof(function_list)/sizeof(function_list[0]), builtins);
-  builtins = gen_builtin_list(builtins);
+  builtins = gen_builtin_list(builtins, in_pub);
 
-  block_inline(inlines, builtins);
+  // private inlines are just for usage inside builtins
+  block_inline(in_priv, builtins);
+
+  // inline the publics before binding the user code, which may have
+  // its own definitions of the same functions (not our problem)
+  // here we make sure that at least our own builtins use the correc inlines
+  block_inline(in_pub, builtins);
 
   *bb = block_bind_referenced(builtins, *bb, OP_IS_CALL_PSEUDO);
-  block_free(inlines);
+
+  // now inline whatever publics are still unbound and matching in the user code
+  block_inline(in_pub, *bb);
+
+  block_free(in_pub);
+  block_free(in_priv);
+
   return nerrors;
 }

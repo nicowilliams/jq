@@ -272,13 +272,13 @@ def walk(f):
 # Run `protect` no matter what when backtracking through a call to this
 # function.  `protect` gets called with `true` if no error was raised,
 # else with the error (wrapped in an array) that was raised.
-def _unwind(protect):
-  . as $dot |
-  unwinding |
-  if .==false then $dot
-  else protect
-  end;
-def unwind(protect): _unwind(protect|empty);
+# def _unwind(protect):
+#  . as $dot |
+#  unwinding |
+#  if .==false then $dot
+#  else protect
+#  end;
+def unwind(protect): .; # _unwind(protect|empty);
 
 # SQL-ish operators here:
 def INDEX(stream; idx_expr):
@@ -293,12 +293,13 @@ def JOIN($idx; stream; idx_expr; join_expr):
 def IN(s): any(s == .; .);
 def IN(src; s): any(src == s; .);
 
+def protect(finally, map_error):
+  catching( . as $e | {.error = ., .raising = true} | finally | $e | map_error )
+  | ( ., {.raising = false} | finally | empty );
+
 def _try_finally(e; h; f):
-  . as $dot |
-  unwinding |
-  if .==false then $dot|try(e; h)
-  else f
-  end;
+  protect(finally, catch)
+  | what;;
 
 # Default I/O policy evaluator.
 #
@@ -362,11 +363,11 @@ def eval: . as $dot | null | eval($dot; {}; {});
 def coeval: . as $program | null | coeval($program; {}; {});
 
 def coexp(cexp):
-  null |
-  cocreate as $child |
-  if ($child == false) or $child == true
-  then null | cexp | cooutput # child;  call and output (which always backtracks!)
-  else $child end;            # parent; output the child's handle
+  . as $dot 
+  | try(corun(cexp);.)                     # in parent starting a coroutine throws its handle
+  | . as $desc
+  | fhwrite($dot)   
+  | unwind($desc | fhclose);
 
 def fhinterleave:
   label $out | repeat(.[] | try fhread catch if .=="EOF" then break $out else error end);

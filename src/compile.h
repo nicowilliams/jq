@@ -18,6 +18,7 @@ block gen_location(location, struct locfile*, block);
 
 block gen_noop();
 int block_is_noop(block b);
+block gen_marker(opcode op);
 block gen_op_simple(opcode op);
 block gen_const(jv constant);
 block gen_const_global(jv constant, const char *name);
@@ -52,6 +53,7 @@ block gen_condbranch(block iftrue, block iffalse);
 block gen_and(block a, block b);
 block gen_or(block a, block b);
 block gen_dictpair(block k, block v);
+block gen_catching(block handler);
 
 block gen_var_binding(block var, const char* name, block body);
 block gen_array_matcher(block left, block curr);
@@ -61,6 +63,7 @@ block gen_destructure_alt(block matcher);
 
 block gen_cond(block cond, block iftrue, block iffalse);
 block gen_try(block exp, block handler);
+block gen_try_finally(block exp, block handler, block finally);
 block gen_label(const char *label, block exp);
 
 block gen_cbinding(const struct cfunction* functions, int nfunctions, block b);

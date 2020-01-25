@@ -67,6 +67,17 @@ struct inst {
 
   int bytecode_pos; // position just after this insn
   unsigned int hidden:1;
+
+  // if this instruction is copied,
+  // the info about the copy is saved here
+  // this allows for post processing to rebind targets or such
+  // the context is used as versioning to identify 
+  // instructions which were copied whithin a particular context
+  // POLICY: assign (don't free either target or dest!)
+  struct {
+    void* context;
+    inst* dest;
+  } copy;
 };
 
 static inst* inst_new(opcode op) {
@@ -85,6 +96,8 @@ static inst* inst_new(opcode op) {
   i->source = UNKNOWN_LOCATION;
   i->locfile = 0;
   i->hidden = 0;
+  i->copy.context = 0;
+  i->copy.dest = 0;
   return i;
 }
 
@@ -98,6 +111,52 @@ static void inst_free(struct inst* i) {
     jv_free(i->imm.constant);
   }
   jv_mem_free(i);
+}
+
+static block block_copy(block b, void* copy_context);
+
+static inst* inst_copy(struct inst* i, void* copy_context) {
+  inst* o = jv_mem_alloc(sizeof(inst));
+  memcpy(o, i, sizeof(inst));
+
+  if (opcode_describe(i->op)->flags & OP_HAS_CONSTANT) {
+    o->imm.constant = jv_copy(i->imm.constant);
+  }
+  if(i->locfile) {
+    o->locfile = locfile_retain(i->locfile);
+  }
+  o->arglist = block_copy(i->arglist, copy_context);
+  o->subfn = block_copy(i->subfn, copy_context);
+  o->symbol =  i->symbol ? jv_mem_strdup(i->symbol) : 0;
+
+  // thank me later :)
+  i->copy.context = copy_context;
+  i->copy.dest = o;
+
+  return o;
+
+}
+
+static block block_copy(block b, void * copy_context) {
+  block bo = {0,0};
+  struct inst *lasto = 0;
+  // this covers the case when block has last instruction with a non-zero next element
+  for (struct inst * i = b.first; i && (i->prev != b.last); i = i->next) {
+    struct inst * o = inst_copy(i, copy_context);
+    o->prev = lasto;
+    if(lasto) {
+      lasto->next = o;
+    } else {
+      bo.first = o;
+      bo.first->prev = 0;
+    }
+    lasto = o;
+  }
+  if(lasto) {
+    lasto->next = 0;
+  }
+  bo.last = lasto;
+  return bo;
 }
 
 static block inst_block(inst* i) {
@@ -153,6 +212,11 @@ block gen_noop() {
 
 int block_is_noop(block b) {
   return (b.first == 0 && b.last == 0);
+}
+
+block gen_marker(opcode op) {
+  assert(opcode_describe(op)->length == 0);
+  return inst_block(inst_new(op));
 }
 
 block gen_op_simple(opcode op) {
@@ -251,6 +315,11 @@ block gen_op_bound(opcode op, block binder) {
 
 block gen_dictpair(block k, block v) {
   return BLOCK(gen_subexp(k), gen_subexp(v), gen_op_simple(INSERT));
+}
+
+block gen_catching(block handler) {
+  block catch = gen_op_target(CATCH, handler);
+  return BLOCK(catch, handler);
 }
 
 
@@ -436,15 +505,81 @@ static inst* block_take_last(block* b) {
 }
 
 void block_inline(block inlines, block body) {
+
   inst *i;
   inst *b;
-  for (i = inlines.first; i; i = i->next) {
+
+  for (i = inlines.first; i && body.first; i = i->next) {
     for (b = body.first; b; b = b->next) {
       if (b->op == CALL_JQ && !b->bound_by && strcmp(b->symbol, i->symbol) == 0 &&
-          b->nactuals == 0)
-        b->op = i->subfn.first->op;
-      block_inline(inlines, b->arglist);
-      block_inline(inlines, b->subfn);
+          b->nactuals == i->nformals) {
+
+            void* ctx = (void*)random();
+
+            // first, copy all instructions
+            block copy = block_copy(i->subfn, ctx);
+
+
+            // now, do the parameter mapping and target remapping
+            // CALL_JQ already has all its arguments prepared and wrapped in 
+            // CLOSURE_CREATE or like, so all we need to do
+            // is to find instructions of the inlined function bound by params
+            // and rebind them to the corresponding args from the arglist
+
+            for(inst* ii = copy.first; ii; ii = ii->next) {
+              if (opcode_describe(ii->op)->flags & OP_HAS_BRANCH) {
+                assert(ii->imm.target && "branching instruction without a target");
+                // in case the instruction had a branch to one of the other
+                // copied instructions, we need to remap it
+                if (ii->imm.target->copy.context == ctx) {
+                  // context matches, means we've just copied it
+                  // just remap it to the copy dest
+                  ii->imm.target = ii->imm.target->copy.dest;
+                }
+              }
+
+              if (ii->bound_by && ii->bound_by->op == CLOSURE_PARAM) {
+                // find the matching param and the corresponding argument
+                int index = 0;
+                inst *arg = b->arglist.first;
+                inst *par = i->arglist.first;
+                while(index < i->nformals && par != ii->bound_by && par && arg) {
+                  par = par->next;
+                  arg = arg->next;
+                  index ++;
+                }
+                assert(index < i->nformals && par && arg && "couldn't identify matching param");
+
+                // the magic happens here
+                ii->bound_by = arg;
+              }
+            }
+
+            // now, copy the arglist from the CALL_JQ instruction
+            // to have the subfunctions stay 
+            copy = block_join(b->arglist, copy);
+
+            // inject the inlined code 
+            // instead of the call instruction
+            copy.first->prev = b->prev;
+            copy.last->next = b->next;
+
+            if(b->prev) {
+              b->prev->next = copy.first;
+            }
+
+            if(b->next) { 
+              b->next->prev = copy.last;
+            }
+
+            // thank you CALL_JQ, you are free now.
+            // but before you go, we need your args
+            b->arglist = gen_noop();
+            inst_free(b);
+      } else {
+        block_inline(inlines, b->arglist);
+        block_inline(inlines, b->subfn);
+      }
     }
   }
 }
@@ -1159,7 +1294,12 @@ static int count_cfunctions(block b) {
 }
 
 #ifndef WIN32
-extern char **environ;
+#  ifdef __APPLE__
+#    include <crt_externs.h>
+#    define environ (*_NSGetEnviron())
+#  else
+     extern char ** environ;
+#  endif
 #endif
 
 static jv
@@ -1278,10 +1418,11 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
   int var_frame_idx = 0;
   bc->nsubfunctions = 0;
   errors += expand_call_arglist(&b, args, env);
-  b = BLOCK(b, gen_op_simple(RET));
+
   jv localnames = jv_array();
   for (inst* curr = b.first; curr; curr = curr->next) {
     if (!curr->next) assert(curr == b.last);
+
     int length = opcode_describe(curr->op)->length;
     if (curr->op == CALL_JQ) {
       for (inst* arg = curr->arglist.first; arg; arg = arg->next) {
@@ -1313,6 +1454,14 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
       curr->imm.intval = idx;
     }
   }
+
+  // block needs a RET_JQ unless it ends with a backtrack 
+  if (b.last->op != BACKTRACK) {
+    b = BLOCK(b, gen_op_simple(RET_JQ));
+    b.last->bytecode_pos = ++pos;
+    b.last->compiled = bc;
+  }
+
   if (pos > 0xFFFF) {
     // too long for program counter to fit in uint16_t
     locfile_locate(lf, UNKNOWN_LOCATION,

@@ -128,7 +128,7 @@ union frame_entry {
 struct frame {
   struct bytecode* bc;      // jq bytecode for callee
   stack_ptr env;            // jq stack address of frame to return to
-  stack_ptr retdata;        // jq stack address to unwind to on RET
+  stack_ptr retdata;        // jq stack address to unwind to on RET_JQ
   uint16_t* retaddr;        // jq bytecode return address
   union frame_entry entries[]; // nclosures + nlocals
 };
@@ -514,9 +514,6 @@ jv jq_next(jq_state *jq) {
 
     switch (opcode) {
     default: assert(0 && "invalid instruction");
-
-    case TOP: break;
-
     case LOADK: {
       jv v = jv_array_get(jv_copy(frame_current(jq)->bc->constants), *pc++);
       assert(jv_is_valid(v));
@@ -1096,53 +1093,43 @@ jv jq_next(jq_state *jq) {
       break;
     }
 
-    case UNWINDING: {
-      jv_free(stack_pop(jq));
-      stack_push(jq, jv_false());
+    case CATCH: {
+      jv in = stack_pop(jq);
+
+      // make a forkpoint
       stack_save(jq, pc - 1, stack_get_pos(jq));
+      // jump over the catch code
+      uint16_t offset = *pc++;
+      pc += offset;
+
+      // pass on the input
+      stack_push(jq, in);
       break;
     }
-    case ON_BACKTRACK(UNWINDING): {
-      jv done = stack_pop(jq);
-      /*
-       * done is false the first time we backtrack to an UNWINDING because the
-       * above case will have pushed false.
-       *
-       * In that case we'll go forth so we can run an unwind-protect handler.
-       *
-       * But first we'll push a value so that when the unwind-protect handler
-       * backtracks we then backtrack too.
-       */
-      if (jv_get_kind(done) == JV_KIND_FALSE) {
-        if (!raising) {
-          /*
-           * We push true because when we backtrack here it will be because an
-           * unwind-protect handler is done and so we'll take the else brack if
-           * the if jv_get_kind(done) == JV_KIND_FALSE) above.
-           */
-          stack_push(jq, jv_true());
-        } else {
-          /*
-           * We'll push the error's message, and we wrap it in an array in case
-           * the message was a jv_true().
-           */
-          stack_push(jq, JV_ARRAY(jv_invalid_get_msg(jq->error)));
-          jq->error = jv_null();
-        }
-        stack_save(jq, pc - 1, stack_get_pos(jq));
-      } else {
-        /*
-         * We're done then.  If done is an array, the one element will be an
-         * error message.
-         */
-        if (jv_get_kind(done) == JV_KIND_ARRAY)
-          set_error(jq, jv_invalid_with_msg(jv_array_get(done, 0)));
+    case ON_BACKTRACK(CATCH): {
+      if (!raising) {
+        // everything's cool, 
+        // go on backtracking
         goto do_backtrack;
+      } else {
+
+        // make a forkpoint for the next backtrack
+        stack_save(jq, pc - 1, stack_get_pos(jq));
+
+        // ignore the offset this time
+        pc++;
+
+        // push the error on the stack for the handler input
+        stack_push(jq, jv_invalid_get_msg(jq->error));
+        // clear the error condition
+        jq->error = jv_null();
+
+        // go on to the handler
+        break;
       }
-      break;
     }
 
-    case COCREATE: {
+    case START: {
       jv input = stack_pop(jq);
       if (jv_get_kind(input) == JV_KIND_NULL) {
         /* Here we're in the parent */
@@ -1187,7 +1174,7 @@ jv jq_next(jq_state *jq) {
       jv_free(input);
       break;
     }
-    case ON_BACKTRACK(COCREATE): {
+    case ON_BACKTRACK(START): {
       jv cohandle = stack_pop(jq);
       if (jv_get_kind(cohandle) == JV_KIND_TRUE) {
         /*
@@ -1325,15 +1312,24 @@ jv jq_next(jq_state *jq) {
       goto do_backtrack;
     }
 
-    case CORET: {
+    case OUT: {
       jv value = stack_pop(jq);
-      // Like a RET top-level return, yielding value
       struct stack_pos spos = stack_get_pos(jq);
-      stack_push(jq, jv_null());
       stack_save(jq, pc - 1, spos);
       return value;
     }
-    case RET: {
+    case ON_BACKTRACK(OUT): {
+      // like backtrack but 
+      // without actual backtracking
+
+      // ignore the pc here since we are moving on
+      uint16_t* unused_pc = stack_restore(jq);
+      assert(unused_pc);
+
+      break;
+    }
+
+    case RET_JQ: {
       jv value = stack_pop(jq);
       assert(jq->stk_top == frame_current(jq)->retdata);
       uint16_t* retaddr = frame_current(jq)->retaddr;
@@ -1350,11 +1346,6 @@ jv jq_next(jq_state *jq) {
       }
       stack_push(jq, value);
       break;
-    }
-    case ON_BACKTRACK(CORET):
-    case ON_BACKTRACK(RET): {
-      // resumed after top-level return
-      goto do_backtrack;
     }
     }
   }
@@ -1621,7 +1612,7 @@ void jq_teardown(jq_state **jqp) {
 }
 
 static int ret_follows(uint16_t *pc) {
-  if (*pc == RET)
+  if (*pc == RET_JQ)
     return 1;
   if (*pc++ != JUMP)
     return 0;
@@ -1647,8 +1638,8 @@ static int ret_follows(uint16_t *pc) {
  *
  * We're looking for:
  *
- * a) the next instruction is a RET or a chain of unconditional JUMPs
- * that ends in a RET, and
+ * a) the next instruction is a RET_JQ or a chain of unconditional JUMPs
+ * that ends in a RET_JQ, and
  *
  * b) none of the closures -callee included- have level == 0.
  */
