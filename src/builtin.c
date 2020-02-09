@@ -1073,10 +1073,6 @@ static jv f_nan(jq_state *jq, jv input) {
   return jv_number(NAN);
 }
 
-static jv f_error(jq_state *jq, jv input) {
-  return jv_invalid_with_msg(input);
-}
-
 // FIXME Should autoconf check for this!
 #ifndef WIN32
 #  ifdef __APPLE__
@@ -1782,7 +1778,6 @@ static const struct cfunction function_list[] = {
   {(cfunction_ptr)f_max, "max", 1, 1, 1},
   {(cfunction_ptr)f_min_by_impl, "_min_by_impl", 2, 1, 1},
   {(cfunction_ptr)f_max_by_impl, "_max_by_impl", 2, 1, 1},
-  {(cfunction_ptr)f_error, "error", 1, 0, 1},
   {(cfunction_ptr)f_format, "format", 2, 1, 1},
   {(cfunction_ptr)f_env, "env", 1, 0, 1},
   {(cfunction_ptr)f_halt, "halt", 1, 0, 1},
@@ -1866,10 +1861,10 @@ static block public_inlines(void) {
     */
   {
     struct bytecoded_builtin builtin_defs[] = {
-      {"empty", gen_op_simple(BACKTRACK)},
+      {"empty", gen_op_simple(BACKTRACK_0)},
+      {"error", gen_op_simple(RAISE)},
       {"not", gen_condbranch(gen_const(jv_false()),
                              gen_const(jv_true()))},
-      {"unwinding", gen_op_simple(UNWINDING)},
       {"output", gen_op_simple(OUT)},
     };
     for (unsigned i=0; i<sizeof(builtin_defs)/sizeof(builtin_defs[0]); i++) {
@@ -1880,6 +1875,7 @@ static block public_inlines(void) {
   {
     struct bytecoded_builtin builtin_def_1arg[] = {
       {"coexp", gen_coexpression_with_param_name("arg")},
+      {"protect", gen_protect_with_param_name("arg")}
     };
     for (unsigned i=0; i<sizeof(builtin_def_1arg)/sizeof(builtin_def_1arg[0]); i++) {
       builtins = BLOCK(builtins, gen_function(builtin_def_1arg[i].name,
@@ -1978,7 +1974,7 @@ static block gen_builtin_list(block builtins, block inlines) {
   return BLOCK(builtins, gen_function("builtins", gen_noop(), gen_const(list)));
 }
 
-extern void block_inline(block inlines, block body);
+extern block block_inline(block inlines, block body);
 
 int builtins_bind(jq_state *jq, block* bb) {
   block builtins, in_priv, in_pub;
@@ -1995,17 +1991,17 @@ int builtins_bind(jq_state *jq, block* bb) {
   builtins = gen_builtin_list(builtins, in_pub);
 
   // private inlines are just for usage inside builtins
-  block_inline(in_priv, builtins);
+  builtins = block_inline(in_priv, builtins);
 
   // inline the publics before binding the user code, which may have
   // its own definitions of the same functions (not our problem)
   // here we make sure that at least our own builtins use the correc inlines
-  block_inline(in_pub, builtins);
+  builtins = block_inline(in_pub, builtins);
 
   *bb = block_bind_referenced(builtins, *bb, OP_IS_CALL_PSEUDO);
 
   // now inline whatever publics are still unbound and matching in the user code
-  block_inline(in_pub, *bb);
+  *bb = block_inline(in_pub, *bb);
 
   block_free(in_pub);
   block_free(in_priv);

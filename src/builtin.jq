@@ -269,17 +269,6 @@ def walk(f):
   else f
   end;
 
-# Run `protect` no matter what when backtracking through a call to this
-# function.  `protect` gets called with `true` if no error was raised,
-# else with the error (wrapped in an array) that was raised.
-def _unwind(protect):
-  . as $dot |
-  unwinding |
-  if .==false then $dot
-  else protect
-  end;
-def unwind(protect): _unwind(protect|empty);
-
 # SQL-ish operators here:
 def INDEX(stream; idx_expr):
   reduce stream as $row ({}; .[$row|idx_expr|tostring] = $row);
@@ -293,12 +282,17 @@ def JOIN($idx; stream; idx_expr; join_expr):
 def IN(s): any(s == .; .);
 def IN(src; s): any(src == s; .);
 
+# The below def is _very_ confusing!
+#
+# `finally` (f) here is in fact the protect handler
+# which will run for _any_error_or_backtrack_
+# that may happen in the code outside of (e) or (h)
+#
+# If this is what the programmer wants,
+# writing it literally as "protect(f) | try(e;h)" 
+# is a much cleaner code
 def _try_finally(e; h; f):
-  . as $dot |
-  unwinding |
-  if .==false then $dot|try(e; h)
-  else f
-  end;
+  protect(f) | try(e; h);
 
 # Default I/O policy evaluator.
 #

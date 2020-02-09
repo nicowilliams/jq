@@ -44,6 +44,113 @@ struct jq_handles {
   size_t nhandles;
 };
 
+enum bt_priority {
+  BT_PRIO_NONE = 0,
+
+  // This is a signal matched by a tag
+  // the tag may encode an instruction
+  // or a pc offset
+  // special case of tag 0 is reserved
+  // for a simple data backtracking.
+  BT_PRIO_SIGNAL,
+
+  // unwind protect handlers
+  BT_PRIO_PROTECT,
+
+  // ===============
+  // this should be the max priority
+  BT_PRIO_ALWAYS,
+  // ===============
+
+  // terminate is a kind of mode 
+  // which is set when unwinding before termination
+  BT_PRIO_TERMINATE = BT_PRIO_ALWAYS,
+};
+
+#define BT_PRIO_BITS 2
+
+#if (BT_PRIO_ALWAYS >= (1<<BT_PRIO_BITS)) 
+  #error "bt_priority should fit in " #BT_PRIO_BITS " bits"
+#endif
+
+#define BT_TAG_BITS (32 - BT_PRIO_BITS)
+#define BT_MAX_TAG ((1 << BT_TAG_BITS) - 1)
+
+// Backtracking tag space is broken into the following 16 bit regions:
+// 0x00000 - 0x0ffff  -  opcode space + hard tags
+// 0x10000 - 0x1ffff  -  soft tags
+// 0x20000 - ....   pc tag, where the lower 16 bits are the offset and the higher bits is level + 2
+
+#define BT_TAG_HARD_START NUM_OPCODES
+#define BT_TAG_SOFT_START 0x10000
+#define BT_TAG_PC_START   0x20000
+
+#define BT_TAG_IS_OPCODE(tag)     ((tag)<NUM_OPCODES)
+#define BT_TAG_IS_HARD(tag)       ((tag)>=BT_TAG_HARD_START && (tag)<BT_TAG_SOFT_START)
+#define BT_TAG_IS_SOFT(tag)       ((tag)>=BT_TAG_SOFT_START && (tag)<BT_TAG_PC_START)
+#define BT_TAG_IS_FRAME_PC(tag)   ((tag)>=BT_TAG_PC_START)
+
+enum bt_hard_tag {
+  // should be the first member here
+  __hard_tag_start = (BT_TAG_HARD_START-1),
+
+  // should be the last member here
+  __hard_tag_end,
+};
+
+#if ( __hard_tag_end >= BT_TAG_SOFT_START)
+#   error "Too many hard tags"
+#endif
+
+#define BT_TAG_SOFT(tag)                (BT_TAG_SOFT_START + (tag))
+#define BT_TAG_FRAME_PC(level,offset)   (BT_TAG_PC_START + ((level)<<16) + (offset))
+
+// returns -1 if the tag is not soft, of the soft tag itself.
+// NB: 0 is a valid soft tag
+#define BT_TAG_GET_SOFT(tag)        (MAX(-1, (int)((tag) - BT_TAG_SOFT_START)))
+#define BT_TAG_GET_PC_FRAME(tag)    (MAX(-1, (int)((tag) - BT_TAG_PC_START) >> 16))
+#define BT_TAG_GET_PC_OFFSET(tag)   ((tag) & 0xFFFF)
+
+union bt_descriptor {
+  uint32_t value;
+  struct {
+    uint32_t tag: BT_TAG_BITS;
+    enum bt_priority prio: BT_PRIO_BITS;
+  } fields;
+};
+
+static inline enum bt_priority bt_desc_prio(uint32_t desc_val) {
+  union bt_descriptor desc = {.value=desc_val};
+  return desc.fields.prio;
+}
+
+static inline uint32_t bt_desc_tag(uint32_t desc_val) {
+  union bt_descriptor desc = {.value=desc_val};
+  return desc.fields.tag;
+}
+
+static inline uint32_t bt_desc_make(enum bt_priority prio, uint32_t tag) {
+  union bt_descriptor desc = {.fields={tag, prio}};
+  return desc.value;
+}
+
+#define BT_DESC(tag)                bt_desc_make(BT_PRIO_SIGNAL, tag)
+#define BT_DESC_SOFT(soft_tag)      bt_desc_make(BT_PRIO_SIGNAL, BT_SOFT_TAG(soft_tag))
+
+#define BT_DESC_NEXT_VALUE          BT_DESC(BACKTRACK_0)
+#define BT_DESC_ERROR               BT_DESC(RAISE)
+
+#define BT_DESC_FRAME_PC(level, offset)   bt_desc_make(BT_PRIO_SIGNAL, BT_TAG_FRAME_PC(level, offset))
+#define BT_DESC_PROTECT                   bt_desc_make(BT_PRIO_PROTECT, 0)
+#define BT_DESC_TERMINATE                 bt_desc_make(BT_PRIO_TERMINATE, 0)
+#define BT_DESC_ALWAYS                    bt_desc_make(BT_PRIO_ALWAYS, 0)
+
+struct bt_state {
+  uint32_t desc;
+  uint32_t ttl;
+  jv payload;
+};
+
 struct jq_state {
   struct jq_plugin_vtable *vtable; /* Must be first! */
   void (*nomem_handler)(void *);
@@ -54,6 +161,8 @@ struct jq_state {
   jq_msg_cb err_cb;
   void *err_cb_data;
   jv error;
+  
+  struct bt_state bt;
 
   struct stack stk;
   stack_ptr curr_frame;
@@ -85,6 +194,7 @@ struct jq_state {
    * instead of storing it on the stack
    */
   jv start_input;
+  jq_input_mode input_mode;
 
   /*
    * I/O and co-routine handles (futures).
@@ -266,6 +376,7 @@ struct forkpoint {
   int path_len, subexp_nest;
   jv value_at_path;
   uint16_t* return_address;
+  uint32_t bt_desc;
 };
 
 struct stack_pos {
@@ -277,7 +388,7 @@ struct stack_pos stack_get_pos(jq_state* jq) {
   return sp;
 }
 
-void stack_save(jq_state *jq, uint16_t* retaddr, struct stack_pos sp){
+void stack_save(jq_state *jq, uint32_t bt_desc, uint16_t* retaddr, struct stack_pos sp){
   jq->fork_top = stack_push_block(&jq->stk, jq->fork_top, sizeof(struct forkpoint));
   struct forkpoint* fork = stack_block(&jq->stk, jq->fork_top);
   fork->saved_data_stack = jq->stk_top;
@@ -287,6 +398,7 @@ void stack_save(jq_state *jq, uint16_t* retaddr, struct stack_pos sp){
   fork->value_at_path = jv_copy(jq->value_at_path);
   fork->subexp_nest = jq->subexp_nest;
   fork->return_address = retaddr;
+  fork->bt_desc = bt_desc;
   jq->stk_top = sp.saved_data_stack;
   jq->curr_frame = sp.saved_curr_frame;
 }
@@ -324,8 +436,7 @@ static void copy_callbacks(jq_state *src, jq_state *dst) {
 }
 
 /* For f_getpath() */
-jv
-_jq_path_append(jq_state *jq, jv v, jv p, jv value_at_path) {
+jv _jq_path_append(jq_state *jq, jv v, jv p, jv value_at_path) {
   if (jq->subexp_nest != 0 ||
       jv_get_kind(jq->path) != JV_KIND_ARRAY ||
       !jv_is_valid(value_at_path)) {
@@ -345,40 +456,98 @@ _jq_path_append(jq_state *jq, jv v, jv p, jv value_at_path) {
   return jv_copy(jq->value_at_path = value_at_path);
 }
 
+static void jq_reset_bt(jq_state *jq, uint32_t bt_desc) {
+  jq->bt.desc = bt_desc;
+  jv_free(jq->bt.payload);
+  jq->bt.payload = jv_invalid();
+  jq->bt.ttl = 0;
+}
+
 uint16_t* stack_restore(jq_state *jq){
-  while (jq->stk.limit < jq->restore_limit && !stack_pop_will_free(&jq->stk, jq->fork_top)) {
-    if (stack_pop_will_free(&jq->stk, jq->stk_top)) {
-      jv_free(stack_pop(jq));
-    } else if (stack_pop_will_free(&jq->stk, jq->curr_frame)) {
-      frame_pop(jq);
+
+  assert(bt_desc_prio(jq->bt.desc) > BT_PRIO_NONE && "stack_restore called when not backtracking");
+
+  // figure out the target pc, if applicable
+  int frame_level = BT_TAG_GET_PC_FRAME(bt_desc_tag(jq->bt.desc));
+  uint16_t* target_pc = 0;
+
+  if (frame_level >= 0) {
+    // this is a PC
+    struct frame* fr = stack_block(&jq->stk, frame_get_level(jq, frame_level));
+    target_pc = fr->bc->code + BT_TAG_GET_PC_OFFSET(bt_desc_tag(jq->bt.desc));
+  }
+
+  // search for a matching forkpoint
+  while (jq->stk.limit < jq->restore_limit) {
+    while (jq->stk.limit < jq->restore_limit && !stack_pop_will_free(&jq->stk, jq->fork_top)) {
+      if (stack_pop_will_free(&jq->stk, jq->stk_top)) {
+        jv_free(stack_pop(jq));
+      } else if (stack_pop_will_free(&jq->stk, jq->curr_frame)) {
+        frame_pop(jq);
+      } else {
+        assert(0);
+      }
+    }
+
+    if (jq->fork_top == 0 || jq->stk.limit >= jq->restore_limit) {
+      return 0;
+    }
+
+    struct forkpoint* fork = stack_block(&jq->stk, jq->fork_top);
+    uint16_t* retaddr = fork->return_address;
+    jq->stk_top = fork->saved_data_stack;
+    jq->curr_frame = fork->saved_curr_frame;
+    int path_len = fork->path_len;
+    if (jv_get_kind(jq->path) == JV_KIND_ARRAY) {
+      assert(path_len >= 0);
+      jq->path = jv_array_slice(jq->path, 0, path_len);
     } else {
-      assert(0);
+      fork->path_len = 0;
+    }
+    jv_free(jq->value_at_path);
+    jq->value_at_path = fork->value_at_path;
+    jq->subexp_nest = fork->subexp_nest;
+    jq->fork_top = stack_pop_block(&jq->stk, jq->fork_top, sizeof(struct forkpoint));
+
+    // now determine if this forkpoint is mathing the request
+
+    if (bt_desc_prio(jq->bt.desc) == bt_desc_prio(fork->bt_desc)) {
+      // this is the matching priority
+      // check for a matching tag for SIGNAL priority
+
+      // resolve the advertised forkpoint pc
+      frame_level = BT_TAG_GET_PC_FRAME(bt_desc_tag(fork->bt_desc));
+      uint16_t* match_pc = 0;
+      if (frame_level >= 0) {
+        struct frame* fr = stack_block(&jq->stk, frame_get_level(jq, frame_level));
+        match_pc = fr->bc->code + BT_TAG_GET_PC_OFFSET(bt_desc_tag(fork->bt_desc));
+      }
+
+      int full_match = (jq->bt.desc == fork->bt_desc) 
+                       || (bt_desc_prio(jq->bt.desc) > BT_PRIO_SIGNAL)
+                       || ((frame_level >= 0) && (target_pc == match_pc));
+
+      if (full_match) {
+        // this is a matching forkpoint, respect the TTL
+        if (jq->bt.ttl > 0) {
+          jq->bt.ttl--;
+        } else {
+          return retaddr;
+        }
+      }
+    }
+    else if(bt_desc_prio(jq->bt.desc) < bt_desc_prio(fork->bt_desc)){
+      // the forkpoint priority is higher than the backtracking request
+      // stop here disregarding the TTL
+      return retaddr;
     }
   }
-
-  if (jq->fork_top == 0 || jq->stk.limit >= jq->restore_limit) {
-    return 0;
-  }
-
-  struct forkpoint* fork = stack_block(&jq->stk, jq->fork_top);
-  uint16_t* retaddr = fork->return_address;
-  jq->stk_top = fork->saved_data_stack;
-  jq->curr_frame = fork->saved_curr_frame;
-  int path_len = fork->path_len;
-  if (jv_get_kind(jq->path) == JV_KIND_ARRAY) {
-    assert(path_len >= 0);
-    jq->path = jv_array_slice(jq->path, 0, path_len);
-  } else {
-    fork->path_len = 0;
-  }
-  jv_free(jq->value_at_path);
-  jq->value_at_path = fork->value_at_path;
-  jq->subexp_nest = fork->subexp_nest;
-  jq->fork_top = stack_pop_block(&jq->stk, jq->fork_top, sizeof(struct forkpoint));
-  return retaddr;
+  return 0;
 }
 
 static void jq_reset(jq_state *jq) {
+  jq_reset_bt(jq, bt_desc_make(BT_PRIO_TERMINATE, 0));
+
   while (stack_restore(jq)) {}
 
   assert(jq->parent || jq->stk_top == 0);
@@ -386,8 +555,7 @@ static void jq_reset(jq_state *jq) {
   assert(jq->parent || jq->curr_frame == 0);
   if (!jq->parent)
     stack_reset(&jq->stk, 0);
-  jv_free(jq->error);
-  jq->error = jv_null();
+  jq_reset_bt(jq, 0);
   jq->halted = 0;
   jq->finished = 0;
   jv_free(jq->exit_code);
@@ -424,9 +592,8 @@ void jq_report_error(jq_state *jq, jv value) {
 }
 
 static void set_error(jq_state *jq, jv value) {
-  // Record so try/catch can find it.
-  jv_free(jq->error);
-  jq->error = value;
+  jq_reset_bt(jq, BT_DESC_ERROR);
+  jq->bt.payload = value;
 }
 
 #define ON_BACKTRACK(op) ((op)+NUM_OPCODES)
@@ -451,16 +618,16 @@ jv jq_next(jq_state *jq) {
     return jv_invalid();
   }
 
-  int initial_execution = jq->initial_execution;
-  jq->initial_execution = 0;
+  jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
 
   uint16_t* pc = stack_restore(jq);
   assert(pc);
 
-  int raising;
-  int backtracking = !initial_execution;
+  if (jq->initial_execution) {
+    jq->initial_execution = 0;
+    jq_reset_bt(jq, 0);
+  } 
 
-  assert(jv_get_kind(jq->error) == JV_KIND_NULL);
   assert(jq->parent == 0 || jq->restore_limit >= jq->stk.limit);
   while (1) {
     if (jq->halted) {
@@ -469,13 +636,12 @@ jv jq_next(jq_state *jq) {
       return jv_invalid();
     }
     uint16_t opcode = *pc;
-    raising = 0;
 
     if (jq->debug_trace_enabled) {
       dump_operation(frame_current(jq)->bc, pc);
       const struct opcode_description* opdesc = opcode_describe(opcode);
       stack_ptr param = 0;
-      if (!backtracking) {
+      if (!jq->bt.desc) {
         int stack_in = opdesc->stack_in;
         if (stack_in == -1) stack_in = pc[1];
         param = jq->stk_top;
@@ -510,31 +676,35 @@ jv jq_next(jq_state *jq) {
           }
         }
       } else {
-        jv e = jv_copy(jq->error);
-        jv *pe = &e;
+        const char* prio_name[] = {
+          "BT_PRIO_NONE",
+          "BT_PRIO_SIGNAL",
+          "BT_PRIO_PROTECT",
+          "BT_PRIO_TERMINATE"
+        };
 
-        if (jv_is_valid(e)) {
-          printf("\t<backtracking>");
-        } else {
-          printf("\t<raising> ");
-
-          while (pe && !jv_is_valid(*pe)) {
-            printf(" E:");
-            if (jv_invalid_has_msg(jv_copy(*pe))) {
-              *pe = jv_invalid_get_msg(*pe);
-            } else {
-              jv_free(*pe);
-              pe = 0;
-            }
+        assert(bt_desc_prio(jq->bt.desc) < (sizeof(prio_name) / sizeof(*prio_name)) && "Unknown backtrack priority");
+        printf("\t[^] %s", prio_name[bt_desc_prio(jq->bt.desc)]);
+        if (bt_desc_prio(jq->bt.desc) == BT_PRIO_SIGNAL) {
+          uint32_t tag = bt_desc_tag(jq->bt.desc);
+          if (BT_TAG_IS_OPCODE(tag)) {
+            printf(", op: %s", opcode_describe(tag)->name);
           }
-
-          if (pe) {
-            jv_dump(*pe, JV_PRINT_REFCOUNT);
-          } else {
-            printf("()");
+          else if (BT_TAG_IS_HARD(tag)) {
+            printf(", tag: %d", tag);
+          } 
+          else if (BT_TAG_IS_SOFT(tag)) {
+            printf(", soft tag: %d", BT_TAG_GET_SOFT(tag));
+          } 
+          else {
+            // this is a frame offset
+            printf(", frame: %d, pc: %04d", (int)((bt_desc_tag(jq->bt.desc) - BT_TAG_PC_START) >> 16), (int)(bt_desc_tag(jq->bt.desc)&0xffff));
           }
-        }
-        
+        }  
+        if (jv_is_valid(jq->bt.payload)) {
+          printf(", payload: ");
+          jv_dump(jv_copy(jq->bt.payload), JV_PRINT_REFCOUNT);
+        }      
       }
 
       if (jq->parent)
@@ -543,10 +713,8 @@ jv jq_next(jq_state *jq) {
       printf("\n");
     }
 
-    if (backtracking) {
+    if (jq->bt.desc != 0) {
       opcode = ON_BACKTRACK(opcode);
-      backtracking = 0;
-      raising = !jv_is_valid(jq->error);
     }
     pc++;
 
@@ -557,16 +725,6 @@ jv jq_next(jq_state *jq) {
       assert(jv_is_valid(v));
       jv_free(stack_pop(jq));
       stack_push(jq, v);
-      break;
-    }
-
-    case GENLABEL: {
-      if (!jv_is_valid(jq->rnd)) {
-        stack_push(jq, JV_OBJECT(jv_string("__jq"), jv_number(jq->next_label++)));
-      } else {
-        stack_push(jq, JV_OBJECT(jv_string("__jq"), jv_number(jq->next_label++),
-                                 jv_string("__jqv"), jv_copy((jq->rnd))));
-      }
       break;
     }
 
@@ -646,9 +804,9 @@ jv jq_next(jq_state *jq) {
         stack_push(jq, stktop);
       } else {
         char errbuf[15];
-        set_error(jq, jv_invalid_with_msg(jv_string_fmt("Cannot use %s (%s) as object key",
-                                                        jv_kind_name(jv_get_kind(k)),
-                                                        jv_dump_string_trunc(jv_copy(k), errbuf, sizeof(errbuf)))));
+        set_error(jq, jv_string_fmt("Cannot use %s (%s) as object key",
+                                    jv_kind_name(jv_get_kind(k)),
+                                    jv_dump_string_trunc(jv_copy(k), errbuf, sizeof(errbuf))));
         jv_free(stktop);
         jv_free(v);
         jv_free(k);
@@ -664,18 +822,16 @@ jv jq_next(jq_state *jq) {
       uint16_t v = *pc++;
       jv* var = frame_local_var(jq, v, level);
       jv max = stack_pop(jq);
-      if (raising) {
-        jv_free(max);
-        goto do_backtrack;
-      } 
+
       if (jv_get_kind(*var) != JV_KIND_NUMBER ||
           jv_get_kind(max) != JV_KIND_NUMBER) {
-        set_error(jq, jv_invalid_with_msg(jv_string_fmt("Range bounds must be numeric")));
+        set_error(jq, jv_string_fmt("Range bounds must be numeric"));
         jv_free(max);
         goto do_backtrack;
       } else if (jv_number_value(*var) >= jv_number_value(max)) {
         /* finished iterating */
         jv_free(max);
+        jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
         goto do_backtrack;
       } else {
         jv curr = *var;
@@ -683,7 +839,7 @@ jv jq_next(jq_state *jq) {
 
         struct stack_pos spos = stack_get_pos(jq);
         stack_push(jq, max);
-        stack_save(jq, pc - 3, spos);
+        stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 3, spos);
 
         stack_push(jq, curr);
       }
@@ -722,10 +878,10 @@ jv jq_next(jq_state *jq) {
     }
 
     case STOREVN:
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, BT_DESC_PROTECT,  pc - 1, stack_get_pos(jq));
       /* fallthru */
     case STOREV: {
-      uint16_t level = *pc++;
+      uint16_t level = *pc++;  
       uint16_t v = *pc++;
       jv* var = frame_local_var(jq, v, level);
       jv val = stack_pop(jq);
@@ -746,7 +902,57 @@ jv jq_next(jq_state *jq) {
       jv_free(*var);
       *var = jv_null();
       goto do_backtrack;
+    }
+
+    case STORE_PC: {
+      uint16_t* my_pc = pc-1;
+      uint16_t pc_offset = my_pc - frame_current(jq)->bc->code;
+
+      jv val = stack_pop(jq);
+      uint16_t level = *pc++;
+      uint16_t v = *pc++;
+
+      assert(level == 0 && "STORE_PC must define a fresh variable");
+
+      stack_save(jq, BT_DESC_FRAME_PC(0, pc_offset),  my_pc, stack_get_pos(jq));
+      stack_push(jq, val);
+
+      jv* var = frame_local_var(jq, v, level);
+      jv_free(*var);
+      *var = jv_number(pc_offset);
+
+      if (jq->debug_trace_enabled) {
+        printf("V(pc)%d = ", v);
+        jv_dump(jv_copy(*var), 0);
+        printf("\n");
+      }
       break;
+    }
+
+    case ON_BACKTRACK(STORE_PC): 
+      // this is my signal
+      // lower the priority of backtracking to data and continue backtracking
+      jq->bt.desc = BT_DESC_NEXT_VALUE;
+      goto do_backtrack;
+
+    case BACKTRACK_PC: {
+      jv_free(stack_pop(jq));
+
+      uint16_t level = *pc++;
+      uint16_t v = *pc++;
+      jv* var = frame_local_var(jq, v, level);
+
+      int offset = (int)jv_number_value(jv_copy(*var));
+
+      if (jq->debug_trace_enabled) {
+        printf("V(pc)%d = ", v);
+        jv_dump(jv_copy(*var), 0);
+        printf("\n");
+      }
+
+      jq_reset_bt(jq, BT_DESC_FRAME_PC(level, offset));
+
+      goto do_backtrack;
     }
 
     case STORE_GLOBAL: {
@@ -772,7 +978,7 @@ jv jq_next(jq_state *jq) {
       jv v = stack_pop(jq);
       stack_push(jq, jq->path);
 
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, stack_get_pos(jq));
 
       stack_push(jq, jv_number(jq->subexp_nest));
       stack_push(jq, jq->value_at_path);
@@ -792,7 +998,7 @@ jv jq_next(jq_state *jq) {
         jv msg = jv_string_fmt(
             "Invalid path expression with result %s",
             jv_dump_string_trunc(v, errbuf, sizeof(errbuf)));
-        set_error(jq, jv_invalid_with_msg(msg));
+        set_error(jq, msg);
         goto do_backtrack;
       }
       jv_free(v); // discard value, only keep path
@@ -805,7 +1011,7 @@ jv jq_next(jq_state *jq) {
 
       struct stack_pos spos = stack_get_pos(jq);
       stack_push(jq, jv_copy(path));
-      stack_save(jq, pc - 1, spos);
+      stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, spos);
 
       stack_push(jq, path);
       jq->subexp_nest = old_subexp_nest;
@@ -833,7 +1039,7 @@ jv jq_next(jq_state *jq) {
             "Invalid path expression near attempt to access element %s of %s",
             jv_dump_string_trunc(k, keybuf, sizeof(keybuf)),
             jv_dump_string_trunc(t, objbuf, sizeof(objbuf)));
-        set_error(jq, jv_invalid_with_msg(msg));
+        set_error(jq, msg);
         goto do_backtrack;
       }
       jv v = jv_get(t, jv_copy(k));
@@ -843,9 +1049,11 @@ jv jq_next(jq_state *jq) {
       } else {
         jv_free(k);
         if (opcode == INDEX)
-          set_error(jq, v);
-        else
+          set_error(jq, jv_invalid_get_msg(v));
+        else {
           jv_free(v);
+          jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
+        }
         goto do_backtrack;
       }
       break;
@@ -879,7 +1087,7 @@ jv jq_next(jq_state *jq) {
         jv msg = jv_string_fmt(
             "Invalid path expression near attempt to iterate through %s",
             jv_dump_string_trunc(container, errbuf, sizeof(errbuf)));
-        set_error(jq, jv_invalid_with_msg(msg));
+        set_error(jq, msg);
         goto do_backtrack;
       }
       stack_push(jq, container);
@@ -901,7 +1109,7 @@ jv jq_next(jq_state *jq) {
         is_last = idx == len - 1;
         if (keep_going) {
           key = jv_number(idx);
-          value = jv_array_get(jv_copy(container), jq->subexp_nest ? idx : len - (idx + 1));
+          value = jv_array_get(jv_copy(container), idx);
         }
       } else if (jv_get_kind(container) == JV_KIND_OBJECT) {
         if (opcode == EACH || opcode == EACH_OPT) idx = jv_object_iter(container);
@@ -923,10 +1131,11 @@ jv jq_next(jq_state *jq) {
         keep_going = 0;
       }
 
-      if (!keep_going || raising) {
+      if (!keep_going) {
         if (keep_going)
           jv_free(value);
         jv_free(container);
+        jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
         goto do_backtrack;
       } else if (is_last) {
         // we don't need to make a backtrack point
@@ -937,112 +1146,137 @@ jv jq_next(jq_state *jq) {
         struct stack_pos spos = stack_get_pos(jq);
         stack_push(jq, container);
         stack_push(jq, jv_number(idx));
-        stack_save(jq, pc - 1, spos);
+        stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, spos);
         path_append(jq, key, jv_copy(value));
         stack_push(jq, value);
       }
       break;
     }
+    case BACKTRACK_N: {
+
+      jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
+
+      jv n = jv_array_get(jv_copy(frame_current(jq)->bc->constants), *pc++);
+
+      if(jv_get_kind(n) == JV_KIND_NUMBER) {
+        jq->bt.ttl = (uint32_t)jv_number_value(jv_copy(n));
+      } 
+      else if (jv_get_kind(n) != JV_KIND_NULL) { // null is equivalent to 0
+        jq_reset_bt(jq, BT_DESC_ERROR);
+        jq->bt.payload = jv_string("argument to break should be a number");
+      }
+
+      jv_free(n);
+
+      goto do_backtrack;
+    }
+
+    case BACKTRACK_0:
+      jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
 
     do_backtrack:
-    case BACKTRACK: {
+      assert(jq->bt.desc > 0 && "Invalid backtracking descriptor");
       pc = stack_restore(jq);
       if (!pc) {
-        if (!jv_is_valid(jq->error)) {
-          jv error = jq->error;
-          jq->error = jv_null();
-          jq->finished = 1;
-          return error;
-        }
-        jq->finished = 1;
-        return jv_invalid();
+        // shouldn't be getting here
+        // since START should intercept all backtracks 
+        assert( 0 && "START should intercept all backtracks" );
       }
-      backtracking = 1;
+      // avoid reaching the bottom of the loop
+      // because the backtracking is reset there;
+      continue;
+
+    case RAISE:
+      set_error(jq, stack_pop(jq));
+      goto do_backtrack;
+
+    case TRY_BEGIN: {
+      uint16_t* my_pc = pc-1;
+      uint16_t offset = *pc++;
+      uint16_t* handler_pc = pc+offset;
+      uint16_t handler_offset = handler_pc - frame_current(jq)->bc->code;
+
+      // save a forkpoint with a tag equal to the handler pc
+      // this forkpoint will fire when TRY_END signals us
+      stack_save(jq, BT_DESC_FRAME_PC(0, handler_offset),  my_pc, stack_get_pos(jq));
+
+      // save another forkpoint with the ERROR tag
+      // this will fire when the protected code raises an error
+      stack_save(jq, BT_DESC_ERROR,  my_pc, stack_get_pos(jq));
+
+      // neither of the forkpoints above will fire on data backtrack
       break;
     }
 
-    case TRY_BEGIN:
-      stack_save(jq, pc - 1, stack_get_pos(jq));
-      pc++; // skip handler offset this time
-      break;
-
     case TRY_END:
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      // install an error forkpoint so that we can signal about it 
+      // to the TRY_BEGIN handler for a re-rise
+      stack_save(jq, BT_DESC_ERROR,  pc - 1, stack_get_pos(jq));
+
+      // jump past the handler to the rest of the code
+      uint16_t offset = *pc++;
+      pc += offset;
       break;
 
     case ON_BACKTRACK(TRY_BEGIN): {
-      if (!raising) {
-        /*
-         * `try EXP ...` -- EXP backtracked (e.g., EXP was `empty`), so we
-         * backtrack more:
-         */
-        jv_free(stack_pop(jq));
+      uint16_t offset = *pc++;
+      uint16_t* handler_pc = pc+offset;
+      uint16_t handler_offset = handler_pc - frame_current(jq)->bc->code;
+
+      if (jq->bt.desc != BT_DESC_ERROR) {
+        // we were signalled by TRY_END about and exception
+        // which happend after the protected block
+        // we should change the tag to ERROR and proceed
+        assert((jq->bt.desc == BT_DESC_FRAME_PC(0, handler_offset)) && "Unexpected backtrack");
+        jq->bt.desc = BT_DESC_ERROR;
         goto do_backtrack;
       }
-
       /*
-       * Else `(try EXP ... ) | EXP2` raised an error.
-       *
-       * If the error was wrapped in another error, then that means EXP2 raised
-       * the error.  We unwrap it and re-raise it as it wasn't raised by EXP.
-       *
-       * See commentary in gen_try().
-       */
-      jv e = jv_invalid_get_msg(jv_copy(jq->error));
-      if (!jv_is_valid(e) && jv_invalid_has_msg(jv_copy(e))) {
-        set_error(jq, e);
-        goto do_backtrack;
-      }
-      jv_free(e);
-
-      /*
-       * Else we caught an error containing a non-error value, so we jump to
+       * Else we caught an error from the protected block, so we jump to
        * the handler.
        *
        * See commentary in gen_try().
        */
-      uint16_t offset = *pc++;
+
       jv_free(stack_pop(jq)); // free the input
-      stack_push(jq, jv_invalid_get_msg(jq->error));  // push the error's message
-      jq->error = jv_null();
+      stack_push(jq, jv_copy(jq->bt.payload));  // push the error
+      jq_reset_bt(jq, 0);
       pc += offset;
       break;
     }
-    case ON_BACKTRACK(TRY_END):
-      // Wrap the error so the matching TRY_BEGIN doesn't catch it
-      if (raising)
-        set_error(jq, jv_invalid_with_msg(jv_copy(jq->error)));
+    case ON_BACKTRACK(TRY_END): {
+      assert(jq->bt.desc == BT_DESC_ERROR && "Unexpected backtrack");
+      pc++;  // unused offset
+
+      // Signal the error to the matching TRY_BEGIN
+      // TRY_BEGIN will be awaiting a tag equal to the PC of the first
+      // instruction of the handler. This is the next instruction
+      jq->bt.desc = BT_DESC_FRAME_PC(0, pc - frame_current(jq)->bc->code);
+
       goto do_backtrack;
+    }
 
     case DESTRUCTURE_ALT:
+      stack_save(jq, BT_DESC_ERROR,  pc - 1, stack_get_pos(jq));
+      pc++; // skip offset this time
+      break;
+
     case FORK: {
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, stack_get_pos(jq));
       pc++; // skip offset this time
       break;
     }
 
     case ON_BACKTRACK(DESTRUCTURE_ALT): {
-      if (jv_is_valid(jq->error)) {
-        // `try EXP ...` backtracked here (no value, `empty`), so we backtrack more
-        jv_free(stack_pop(jq));
-        goto do_backtrack;
-      }
-      // `try EXP ...` exception caught in EXP
+      assert(jq->bt.desc == BT_DESC_ERROR && "Unexpected backtrack (DESTRUCTURE_ALT)");
       // DESTRUCTURE_ALT doesn't want the error message on the stack,
       // as we would just want to throw it away anyway.
-      if (opcode != ON_BACKTRACK(DESTRUCTURE_ALT)) {
-        jv_free(stack_pop(jq)); // free the input
-        stack_push(jq, jv_invalid_get_msg(jq->error));  // push the error's message
-      } else {
-        jv_free(jq->error);
-      }
-      jq->error = jv_null();
+      jq_reset_bt(jq, 0);
       uint16_t offset = *pc++;
       pc += offset;
       break;
     }
     case ON_BACKTRACK(FORK): {
-      if (raising) goto do_backtrack;
       uint16_t offset = *pc++;
       pc += offset;
       break;
@@ -1076,11 +1310,12 @@ jv jq_next(jq_state *jq) {
       if (jv_is_valid(top)) {
         stack_push(jq, top);
       } else if (jv_invalid_has_msg(jv_copy(top))) {
-        set_error(jq, top);
+        set_error(jq, jv_invalid_get_msg(top));
         goto do_backtrack;
       } else {
         // C-coded function returns invalid w/o msg? -> backtrack, as if
         // it had returned `empty`
+        jq_reset_bt(jq, BT_DESC_NEXT_VALUE);
         goto do_backtrack;
       }
       break;
@@ -1131,49 +1366,69 @@ jv jq_next(jq_state *jq) {
       break;
     }
 
-    case UNWINDING: {
-      jv_free(stack_pop(jq));
-      stack_push(jq, jv_false());
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+    case PROTECT: {
+      stack_push(jq, jv_null());
+      stack_save(jq, BT_DESC_PROTECT,  pc - 1, stack_get_pos(jq));
+      uint16_t offset = *pc++;
+      // jump over the handler
+      pc += offset;
       break;
     }
-    case ON_BACKTRACK(UNWINDING): {
-      jv done = stack_pop(jq);
-      /*
-       * done is false the first time we backtrack to an UNWINDING because the
-       * above case will have pushed false.
-       *
-       * In that case we'll go forth so we can run an unwind-protect handler.
-       *
-       * But first we'll push a value so that when the unwind-protect handler
-       * backtracks we then backtrack too.
-       */
-      if (jv_get_kind(done) == JV_KIND_FALSE) {
-        if (!raising) {
-          /*
-           * We push true because when we backtrack here it will be because an
-           * unwind-protect handler is done and so we'll take the else brack if
-           * the if jv_get_kind(done) == JV_KIND_FALSE) above.
-           */
-          stack_push(jq, jv_true());
+    case ON_BACKTRACK(PROTECT): {
+      // something happened down the stream
+      // we need to save this state and run the handler
+      jv desc = stack_pop(jq);
+
+      if(jv_get_kind(desc) == JV_KIND_NULL) {
+        // this is the first backtrack;
+        // we should save the backtrack state and run the handler
+
+        jv raising = jq->bt.desc == BT_DESC_ERROR ? jv_true() : jv_false();
+        jv error = jv_copy(jq->bt.payload);
+
+        if(jv_is_valid(jq->bt.payload)) {
+          stack_push(jq, jv_copy(jq->bt.payload));
+          stack_push(jq, jv_true()); // has payload
         } else {
-          /*
-           * We'll push the error's message, and we wrap it in an array in case
-           * the message was a jv_true().
-           */
-          stack_push(jq, JV_ARRAY(jv_invalid_get_msg(jq->error)));
-          jq->error = jv_null();
+          stack_push(jq, jv_false()); // no payload
         }
-        stack_save(jq, pc - 1, stack_get_pos(jq));
-      } else {
-        /*
-         * We're done then.  If done is an array, the one element will be an
-         * error message.
-         */
-        if (jv_get_kind(done) == JV_KIND_ARRAY)
-          set_error(jq, jv_invalid_with_msg(jv_array_get(done, 0)));
+        stack_push(jq, jv_number(jq->bt.ttl));
+        stack_push(jq, jv_number(jq->bt.desc));
+
+        jq_reset_bt(jq, 0);
+        stack_save(jq, BT_DESC_PROTECT,  pc - 1, stack_get_pos(jq));
+
+        // prepare the input for the protect handler
+
+        jv input = jv_object();
+        if(jv_get_kind(raising) == JV_KIND_TRUE) {
+          jv_object_set(input, jv_string("error"), error);
+        } else {
+          jv_free(error);
+        }
+        jv_object_set(input, jv_string("raising"), raising);
+
+        stack_push(jq, input);
+
+        // proceed to the handler now
+        break;
+      }
+      else {
+        // this is the second backtrack
+        // restore the original bt signal and move on
+        assert(jv_get_kind(desc) == JV_KIND_NUMBER);
+
+        jq_reset_bt(jq, (uint32_t)jv_number_value(desc));
+        jq->bt.ttl = (uint32_t)jv_number_value(stack_pop(jq));
+        jv has_payload = stack_pop(jq); 
+        if (jv_get_kind(has_payload) == JV_KIND_TRUE) {
+          jq->bt.payload = stack_pop(jq);
+        }
+        jv_free(has_payload);
         goto do_backtrack;
       }
+
+      
       break;
     }
 
@@ -1209,38 +1464,58 @@ jv jq_next(jq_state *jq) {
 
       break;
     }
-    case START: 
-      initial_execution = 0;
-      /* fallthrough, to the input */
+    case START:
     case ON_BACKTRACK(START): {
-      // we do different things for main program and for coroutines
-      // because backward compatibility is a bitch
-      //
-      // main:  if the jq->start_input is invalid, return invalid()
-      //        so that the caller may decide how to proceed
-      // coexp: if the jq_start_input is invalid, return invalid()
+
+      if(jq->bt.desc == BT_DESC_ERROR) {
+        // we are raising and backtracked up to here
+        // this is an unhandled user error, halt and return it
+        jv error = jv_invalid_with_msg(jv_copy(jq->bt.payload));
+        jq_reset_bt(jq, 0);
+        jq->finished = 1;
+        return error;
+      } else if (bt_desc_prio(jq->bt.desc) > BT_DESC_ERROR) {
+        return jv_invalid_with_msg(jv_string_fmt("jq VM unwinded with priority %d", bt_desc_prio(jq->bt.desc)));
+      }
+
       jv start_input = jq->start_input;
       jq->start_input = jv_invalid();
 
-      if(!jv_is_valid(start_input)) {
-        if(jq->parent) {
-          jq->halted = 1;
-          if (jv_invalid_has_msg(jv_copy(start_input))) {
-            return start_input;
-          } else {
-            jv_free(start_input);
-            return jv_invalid();
-          }
-        } else {
-          // backward compatible way of saying "i want more input"
-          jv_free(start_input);
-          stack_save(jq, jq->start_pc, stack_get_pos(jq));
-          return jv_invalid();
+      if (!jv_is_valid(start_input)) {
+        if (jv_invalid_has_msg(jv_copy(start_input))) {
+          // in case start input is an invalid with message
+          // then return this invalid and halt
+          jq->finished = 1;
+          return start_input;
         }
-      } else {
-        stack_save(jq, jq->start_pc, stack_get_pos(jq));
-        stack_push(jq, start_input);
+        switch (jq->input_mode) {
+          case JQ_INPUT_RETURN_EMPTY: {
+            // the usual mode:
+            // save the stack and request more input by returning empty
+            stack_save(jq, BT_DESC_ALWAYS,  pc - 1, stack_get_pos(jq));
+            return start_input /*jv_invalid()*/;
+          }
+          case JQ_INPUT_CALLBACK: {
+            while(!jv_is_valid(start_input) && !jv_invalid_has_msg(jv_copy(start_input))) {
+              if (jq->input_cb == NULL) {
+                return jv_invalid_with_msg(jv_string("Input callback mode requested but input callback hasn't been set"));
+              }
+
+              start_input = jq->input_cb(jq, jq->input_cb_data);
+            }
+
+            if(!jv_is_valid(start_input) && jv_invalid_has_msg(jv_copy(start_input))) {
+              jq->finished = 1;
+              return start_input;
+            }
+          }
+        }
       }
+      
+      // geting here means that start_input is a valid value
+      stack_save(jq, BT_DESC_ALWAYS,  pc - 1, stack_get_pos(jq));
+      stack_push(jq, start_input);
+
       break;
     }
 
@@ -1262,7 +1537,7 @@ jv jq_next(jq_state *jq) {
         args = JV_OBJECT(jv_string("positional"), jv_array());
       }
       if (jv_get_kind(args) != JV_KIND_OBJECT && jv_get_kind(args) != JV_KIND_NULL) {
-        set_error(jq, jv_invalid_with_msg(jv_string("Eval program arguments must be an object or null")));
+        set_error(jq, jv_string("Eval program arguments must be an object or null"));
         jv_free(program);
         jv_free(options);
         jv_free(input);
@@ -1274,7 +1549,7 @@ jv jq_next(jq_state *jq) {
         args = JV_OBJECT(jv_string("positional"), jv_array());
       }
       if (jv_get_kind(options) != JV_KIND_OBJECT && jv_get_kind(options) != JV_KIND_NULL) {
-        set_error(jq, jv_invalid_with_msg(jv_string("Eval program options must be an object")));
+        set_error(jq, jv_string("Eval program options must be an object"));
         jv_free(program);
         jv_free(options);
         jv_free(input);
@@ -1302,7 +1577,7 @@ jv jq_next(jq_state *jq) {
                                 jv_false());
       }
       if (jv_get_kind(program) != JV_KIND_STRING) {
-        set_error(jq, jv_invalid_with_msg(jv_string("Eval program must be a string")));
+        set_error(jq, jv_string("Eval program must be a string"));
         jv_free(program);
         jv_free(options);
         jv_free(input);
@@ -1314,12 +1589,14 @@ jv jq_next(jq_state *jq) {
       if (jv_is_valid(options))
         jq_set_attrs(jq, jv_copy(options));
 
+      child->input_mode = JQ_INPUT_RETURN_EMPTY;
+
       /* Give the child a way to report errors */
       jv *p = jv_mem_calloc(1, sizeof(jv));
       *p = jv_null();
       jq_set_error_cb(child, co_err_cb, p);
       if (!jq_compile_args(child, jv_string_value(program), jv_copy(args))) {
-        set_error(jq, jv_invalid_with_msg(jv_string_fmt("Eval program failed to compile: %s", jv_string_value(*p))));
+        set_error(jq, jv_string_fmt("Eval program failed to compile: %s", jv_string_value(*p)));
         jq_teardown(&child);
         jv_free(program);
         jv_free(options);
@@ -1342,7 +1619,7 @@ jv jq_next(jq_state *jq) {
 
       extern struct jq_io_table jq__covt;
       stack_push(jq, jq_handle_new(jq, "coroutine", &jq__covt, child));
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, stack_get_pos(jq));
       break;
     }
     case ON_BACKTRACK(COEVAL): {
@@ -1358,7 +1635,7 @@ jv jq_next(jq_state *jq) {
     }
     case OUT: {
       jv value = stack_pop(jq);
-      stack_save(jq, pc - 1, stack_get_pos(jq));
+      stack_save(jq, BT_DESC_NEXT_VALUE,  pc - 1, stack_get_pos(jq));
       return value;
     }
     case ON_BACKTRACK(OUT): {
@@ -1371,21 +1648,18 @@ jv jq_next(jq_state *jq) {
       jv value = stack_pop(jq);
       assert(jq->stk_top == frame_current(jq)->retdata);
       uint16_t* retaddr = frame_current(jq)->retaddr;
-      if (retaddr) {
-        // function return
-        pc = retaddr;
-        frame_pop(jq);
-      } else {
-        // top-level return, yielding value
-        struct stack_pos spos = stack_get_pos(jq);
-        stack_push(jq, jv_null());
-        stack_save(jq, pc - 1, spos);
-        return value;
-      }
+
+      assert(retaddr);
+      
+      pc = retaddr;
+      frame_pop(jq);
+
       stack_push(jq, value);
       break;
     }
     }
+  
+    jq_reset_bt(jq, 0);
   }
 }
 
@@ -1458,6 +1732,7 @@ jq_state *jq_init(void) {
   jq->finished = 0;
   jq->exit_code = jv_invalid();
   jq->error_message = jv_invalid();
+  jq_reset_bt(jq, 0);
 
   jq->err_cb = default_err_cb;
   jq->err_cb_data = stderr;
@@ -1466,6 +1741,7 @@ jq_state *jq_init(void) {
   jq->input_cb_data = 0;
 
   jq->start_input = jv_invalid();
+  jq->input_mode = JQ_INPUT_DEFAULT;
 
   jq->vmid = jv_number_random_int();
   jq->rnd = jv_number_random_int();
@@ -1563,6 +1839,7 @@ static jq_state *coinit(jq_state *parent, uint16_t* start_pc) {
    * client.
    */
   jq_set_input_cb(child, coinput_cb, &child->start_input);
+  child->input_mode = JQ_INPUT_RETURN_EMPTY;
 
   return child;
 }
@@ -1603,7 +1880,7 @@ void jq_start(jq_state *jq, jv input, int flags) {
   }
 
   jq->start_input = input;
-  stack_save(jq, jq->parent ? jq->start_pc : jq->bc->code, stack_get_pos(jq));
+  stack_save(jq, BT_DESC_NEXT_VALUE,  jq->parent ? jq->start_pc : jq->bc->code, stack_get_pos(jq));
 
   jq->debug_trace_enabled = flags & JQ_DEBUG_TRACE_ALL;
   jq->initial_execution = 1;
@@ -2132,6 +2409,23 @@ jv jq_get_exit_code(jq_state *jq)
 jv jq_get_error_message(jq_state *jq)
 {
   return jv_copy(jq->error_message);
+}
+
+void jq_set_input_mode(jq_state* jq, jq_input_mode mode) {
+  jq->input_mode = mode;
+}
+
+jq_input_mode jq_get_input_mode(jq_state* jq) {
+  return jq->input_mode;
+}
+
+void jq_set_input(jq_state* jq, jv start_input) {
+  jv_free(jq->start_input);
+  jq->start_input = start_input;
+}
+
+jv jq_get_input_copy(jq_state* jq) {
+  return jv_copy(jq->start_input);
 }
 
 jv jq_io_policy_check(jq_state *jq, jv req) {

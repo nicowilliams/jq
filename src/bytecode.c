@@ -5,10 +5,12 @@
 #include "bytecode.h"
 #include "jv_alloc.h"
 
+#define _IND_BT(flags, length) (OP_BACKTRACKS | flags), length
+#define BT(type) _IND ## _BT ( type )
+
 // flags, length
 #define MARKER 0, 0
 #define NONE 0, 1
-#define BACKTRACKING OP_BACKTRACKS, 1
 #define CONSTANT OP_HAS_CONSTANT, 2
 #define VARIABLE (OP_HAS_VARIABLE | OP_HAS_BINDING), 3
 #define GLOBAL (OP_HAS_CONSTANT | OP_HAS_VARIABLE | OP_HAS_BINDING | OP_IS_CALL_PSEUDO), 4

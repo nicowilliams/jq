@@ -101,15 +101,20 @@ static inst* inst_new(opcode op) {
   return i;
 }
 
-static void inst_free(struct inst* i) {
-  jv_mem_free(i->symbol);
-  block_free(i->subfn);
-  block_free(i->arglist);
-  if (i->locfile)
-    locfile_free(i->locfile);
-  if (opcode_describe(i->op)->flags & OP_HAS_CONSTANT) {
-    jv_free(i->imm.constant);
+static void inst_dispose(struct inst* i) {
+  jv_mem_free(i->symbol); i->symbol = 0;
+  block_free(i->subfn); i->subfn = gen_noop();
+  block_free(i->arglist); i->arglist = gen_noop();
+  if (i->locfile) {
+    locfile_free(i->locfile); i->locfile = 0;
   }
+  if (opcode_describe(i->op)->flags & OP_HAS_CONSTANT) {
+    jv_free(i->imm.constant); i->imm.constant = jv_invalid();
+  }
+}
+
+static void inst_free(struct inst* i) {
+  inst_dispose(i);
   jv_mem_free(i);
 }
 
@@ -223,12 +228,15 @@ block gen_op_simple(opcode op) {
   return inst_block(inst_new(op));
 }
 
-
-block gen_const(jv constant) {
-  assert(opcode_describe(LOADK)->flags & OP_HAS_CONSTANT);
-  inst* i = inst_new(LOADK);
+block gen_op_const(opcode op, jv constant) {
+  assert(opcode_describe(op)->flags & OP_HAS_CONSTANT);
+  inst* i = inst_new(op);
   i->imm.constant = constant;
   return inst_block(i);
+}
+
+block gen_const(jv constant) {
+  return gen_op_const(LOADK, constant);
 }
 
 block gen_const_global(jv constant, const char *name) {
@@ -498,13 +506,19 @@ static inst* block_take_last(block* b) {
   return i;
 }
 
-void block_inline(block inlines, block body) {
+block block_inline(block inlines, block body) {
 
   inst *i;
   inst *b;
+  block result = body;
 
-  for (i = inlines.first; i && body.first; i = i->next) {
-    for (b = body.first; b; b = b->next) {
+  for (b = body.first; b; b = b->next) {
+    if (b->any_unbound == 0) {
+      continue;
+    }
+
+    for (i = inlines.first; i; i = i->next) {
+
       if (b->op == CALL_JQ && !b->bound_by && strcmp(b->symbol, i->symbol) == 0 &&
           b->nactuals == i->nformals) {
 
@@ -512,6 +526,8 @@ void block_inline(block inlines, block body) {
 
             // save the call's arglist for the mapping below
             block call_arglist = b->arglist;
+            // avoid freeing the arglist in the dispose call below
+            b->arglist = gen_noop();
             // save the prev and next
             inst* prev = b->prev;
             inst* next = b->next;
@@ -531,6 +547,7 @@ void block_inline(block inlines, block body) {
             // had this call as the branch target.
             // searching for such instruction would mean 
             // that we needed to scan full code (every time) and we don't want it
+            inst_dispose(b);
             inst_copy_to(b, i->subfn.last, ctx);
             b->prev = 0; // for a valid inst block
             block_append(&copy, inst_block(b));
@@ -581,6 +598,10 @@ void block_inline(block inlines, block body) {
 
             if(prev) {
               prev->next = copy.first;
+            } else {
+              // this used to be the first instruction in body
+              // we have to update the result.first pointer now
+              result.first = copy.first;
             }
 
             // we've reused the call instruction as the last one
@@ -589,11 +610,12 @@ void block_inline(block inlines, block body) {
             // we've reused the call instruction
             // so no need to free anything
       } else {
-        block_inline(inlines, b->arglist);
-        block_inline(inlines, b->subfn);
+        b->arglist = block_inline(inlines, b->arglist);
+        b->subfn = block_inline(inlines, b->subfn);
       }
     }
   }
+  return result;
 }
 
 // Binds a sequence of binders, which *must not* alrady be bound to each other,
@@ -920,7 +942,7 @@ block gen_collect(block expr) {
   block c = BLOCK(gen_op_simple(DUP), gen_const(jv_array()), array_var);
 
   block tail = BLOCK(gen_op_bound(APPEND, array_var),
-                     gen_op_simple(BACKTRACK));
+                     gen_op_simple(BACKTRACK_0));
 
   return BLOCK(c,
                gen_op_target(FORK, tail),
@@ -1022,7 +1044,7 @@ block gen_reduce(block source, block matcher, block init, block body) {
                                   BLOCK(gen_op_bound(LOADVN, res_var),
                                         body,
                                         gen_op_bound(STOREV, res_var))),
-                     gen_op_simple(BACKTRACK));
+                     gen_op_simple(BACKTRACK_0));
   return BLOCK(gen_op_simple(DUP),
                init,
                res_var,
@@ -1069,7 +1091,7 @@ block gen_foreach(block source, block matcher, block init, block update, block e
                         // ...at this point `foreach`'s original input
                         // will be on top of the stack, and we don't
                         // want to output it, so we backtrack.
-                        gen_op_simple(BACKTRACK));
+                        gen_op_simple(BACKTRACK_0));
   inst_set_target(output, foreach); // make that JUMP go bast the BACKTRACK at the end of the loop
   return foreach;
 }
@@ -1082,13 +1104,31 @@ block gen_coexpression_with_param_name(const char* param) {
   return BLOCK(cocreate, cobody);
 }
 
+block gen_protect_with_param_name(const char* param) {
+  // PROTECT will install a protect forkpoint
+  // that will fire on any kind of unwind
+  // when it does fire, the handler will be run 
+  // with an input of {.raising=<bool> [.error=<error>]}
+
+  // Before running the handler, another protect forkpoint will be installed.
+  // This time, the forkpoint will be needed to re-send the backtracking event
+  // which has triggered the handler run.
+  
+  // If the handler raises or backtracks the protect will still re-send
+  // the original backtracking signal. 
+  block handler = BLOCK(gen_call(param, gen_noop()),
+                        gen_op_simple(BACKTRACK_0));
+  block protect = gen_op_target(PROTECT, handler);
+  return BLOCK(protect, handler);
+}
+
 block gen_definedor(block a, block b) {
   // var found := false
   block found_var = gen_op_var_fresh(STOREV, "found");
   block init = BLOCK(gen_op_simple(DUP), gen_const(jv_false()), found_var);
 
   // if found, backtrack. Otherwise execute b
-  block backtrack = gen_op_simple(BACKTRACK);
+  block backtrack = gen_op_simple(BACKTRACK_0);
   block tail = BLOCK(gen_op_simple(DUP),
                      gen_op_bound(LOADV, found_var),
                      gen_op_target(JUMP_F, backtrack),
@@ -1097,7 +1137,7 @@ block gen_definedor(block a, block b) {
                      b);
 
   // try again
-  block if_notfound = gen_op_simple(BACKTRACK);
+  block if_notfound = gen_op_simple(BACKTRACK_0);
 
   // found := true, produce result
   block if_found = BLOCK(gen_op_simple(DUP),
@@ -1230,19 +1270,19 @@ block gen_try(block exp, block handler) {
   /*
    * Produce:
    *
-   *  TRY_BEGIN handler
-   *  <exp>
-   *  TRY_END
-   *  JUMP past_handler
-   *  handler: <handler>
-   *  past_handler:
+   *            TRY_BEGIN @handler
+   *            <exp>
+   *            TRY_END @rest
+   *  handler:  <handler>
+   *  rest:     <rest>
    *
    * If <exp> backtracks then TRY_BEGIN will backtrack.
    *
    * If <exp> produces a value then we'll execute whatever bytecode follows
-   * this sequence.  If that code raises an exception, then TRY_END will wrap
-   * and re-raise that exception, and TRY_BEGIN will unwrap and re-raise the
-   * exception (see jq_next()).
+   * this sequence (<rest). If that code raises an exception, then TRY_END will
+   * catch it and signal to TRY_BEGIN, which will re-raise the exception
+   * (see jq_next()). the address of the handler will be used as the signalling tag,
+   * as it is known to both TRY_BEGIN (branch dest) and TRY_END (next inst)
    *
    * If <exp> raises then the TRY_BEGIN will see a non-wrapped exception and
    * will jump to the handler (note the TRY_END will not execute in this case),
@@ -1255,30 +1295,19 @@ block gen_try(block exp, block handler) {
    */
 
   if (block_is_noop(handler))
-    handler = BLOCK(gen_op_simple(DUP), gen_op_simple(POP));
+    handler = gen_marker(TARGET_MARKER);
 
-  block jump = gen_op_target(JUMP, handler);
-  return BLOCK(gen_op_target(TRY_BEGIN, jump), exp, gen_op_simple(TRY_END),
-               jump, handler);
+  block end = gen_op_target(TRY_END, handler);
+
+  return BLOCK(gen_op_target(TRY_BEGIN, end), 
+               exp, end, handler);
 }
 
 block gen_label(const char *label, block exp) {
-  block cond = gen_call("_equal",
-                        BLOCK(gen_lambda(gen_noop()),
-                              gen_lambda(gen_op_unbound(LOADV, label))));
-  return gen_wildvar_binding(gen_op_simple(GENLABEL), label,
-                             BLOCK(gen_op_simple(POP),
-                                   // try exp catch if . == $label
-                                   //               then empty
-                                   //               else error end
-                                   //
-                                   // Can't use gen_binop(), as that's firmly
-                                   // stuck in parser.y as it refers to things
-                                   // like EQ.
-                                   gen_try(exp,
-                                           gen_cond(cond,
-                                                    gen_op_simple(BACKTRACK),
-                                                    gen_call("error", gen_noop())))));
+  return block_bind(
+      gen_op_var_fresh(STORE_PC, label),
+      exp, 
+      OP_HAS_VARIABLE | OP_BIND_WILDCARD);
 }
 
 block gen_cbinding(const struct cfunction* cfunctions, int ncfunctions, block code) {
@@ -1356,7 +1385,7 @@ static int expand_call_arglist(block* b, jv args, jv *env) {
       } else if (!curr->bound_by) {
         if (curr->symbol[0] == '*' && curr->symbol[1] >= '1' && curr->symbol[1] <= '3' && curr->symbol[2] == '\0')
           locfile_locate(curr->locfile, curr->source, "jq: error: break used outside labeled control structure");
-        else if (curr->op == LOADV)
+        else if (curr->op == LOADV || curr->op == BACKTRACK_PC)
           locfile_locate(curr->locfile, curr->source, "jq: error: $%s is not defined", curr->symbol);
         else
           locfile_locate(curr->locfile, curr->source, "jq: error: %s/%d is not defined", curr->symbol, curr->nactuals);
@@ -1438,13 +1467,13 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
   int var_frame_idx = 0;
   bc->nsubfunctions = 0;
   errors += expand_call_arglist(&b, args, env);
-  int has_start = 0;
+  int has_top = 0;
 
   jv localnames = jv_array();
   for (inst* curr = b.first; curr; curr = curr->next) {
     if (!curr->next) assert(curr == b.last);
 
-    has_start = has_start || (curr->op == START);
+    has_top = has_top || (curr->op == TOP);
 
     int length = opcode_describe(curr->op)->length;
     if (curr->op == CALL_JQ) {
@@ -1478,8 +1507,8 @@ static int compile(struct bytecode* bc, block b, struct locfile* lf, jv args, jv
     }
   }
 
-  // block needs a RET_JQ unless it is the main block
-  if (!b.last || !has_start) {
+  // block should better have a RET_JQ unless it is the top block
+  if (!b.last || !has_top) {
     b = BLOCK(b, gen_op_simple(RET_JQ));
     b.last->bytecode_pos = ++pos;
     b.last->compiled = bc;

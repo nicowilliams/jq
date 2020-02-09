@@ -371,9 +371,16 @@ FuncDef Exp %prec FUNCDEF {
   /* as $IDENT | */
   block covar = gen_op_var_fresh(STOREV, jv_string_value($5));
   /* def IDENT: $IDENT | fhread; */
-  block codef = gen_function(jv_string_value($5), gen_noop(), BLOCK(gen_op_unbound(LOADV, jv_string_value($5)), gen_call("fhread", gen_noop())));
+  block codef = gen_function(
+    jv_string_value($5), 
+    gen_noop(), 
+    BLOCK(
+      gen_op_unbound(LOADV, jv_string_value($5)), 
+      gen_call("fhread", gen_noop())
+    )
+  );
 
-  /* Now bind $6 so it sees the codef */
+  /* Now bind $9 so it sees the codef */
   block b = block_bind_referenced(codef, $9, OP_IS_CALL_PSEUDO | OP_HAS_BINDING);
   
   /* Now bind that so it sees the variable $IDENT */
@@ -381,7 +388,7 @@ FuncDef Exp %prec FUNCDEF {
 
   /* Now do the rest of the binding for a $IDENT | Exp */
   covar = block_take_block(&b);
-  $$ = gen_destructure(coexp, covar, b);
+  $$ = BLOCK(gen_const(jv_null()), gen_destructure(coexp, covar, b));
   jv_free($5);
 } |
 
@@ -421,7 +428,7 @@ Term "as" Patterns '|' Exp {
   $$ = gen_try($2, $4);
 } |
 "try" Exp {
-  $$ = gen_try($2, gen_op_simple(BACKTRACK));
+  $$ = gen_try($2, gen_op_simple(BACKTRACK_0));
 } |
 "try" Exp "catch" error {
   FAIL(@$, "Possibly unterminated 'try' statement");
@@ -436,7 +443,7 @@ Term "as" Patterns '|' Exp {
 } |
 
 Exp '?' {
-  $$ = gen_try($1, gen_op_simple(BACKTRACK));
+  $$ = gen_try($1, gen_op_simple(BACKTRACK_0));
 } |
 
 Exp '=' Exp {
@@ -697,14 +704,16 @@ REC {
 BREAK '$' IDENT {
   jv v = jv_string_fmt("*label-%s", jv_string_value($3));     // impossible symbol
   $$ = gen_location(@$, locations,
-                    BLOCK(gen_op_unbound(LOADV, jv_string_value(v)),
-                    gen_call("error", gen_noop())));
+                    gen_op_unbound(BACKTRACK_PC, jv_string_value(v)));
   jv_free(v);
   jv_free($3);
 } |
 BREAK error {
   FAIL(@$, "break requires a label to break to");
   $$ = gen_noop();
+} |
+BREAK LITERAL {
+  $$ = gen_op_const(BACKTRACK_N, $2);
 } |
 Term FIELD '?' {
   $$ = gen_index_opt($1, gen_const($2));
