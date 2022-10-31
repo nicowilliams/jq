@@ -18,53 +18,71 @@ on:
 
 jobs:
     windows:
-        runs-on: windows-latest
-        env:
-            APPVER: '10.0'
-            CODESIGN_PKT: 0000000000000000
-            INSTALL_DIR: C:\jq
-            WINSDKVER: '10.0.22000.0'
-            WIXDIR: 'c:\Program Files (x86)\Windows Installer XML v3.5'
+        runs-on: windows-2019
+        #strategy:
+        #  matrix:
+        #    include:
+        #      - { sys: mingw64, env: x86_64 }
+        #      #- { sys: clang64, env: clang-x86_64 }
         steps:
             - name: Clone repository
               uses: actions/checkout@v1
-            - name: Find MSVC and run vcvarsall.bat
-              uses: ilammy/msvc-dev-cmd@v1
+            - name: Cache Build
+              uses: actions/cache@v2
               with:
-                arch: amd64
+                path: build
+                key: mingw-autotools-${{ matrix.EVENT_MATRIX }}-v5
             - uses: msys2/setup-msys2@v2
               with:
+                msystem: MINGW64
                 update: true
-                install: >-
-                  base-devel
-                  git
+                #install: base-devel git autoconf automake libtool autotools bison flex
+                install: mingw-w64-x86_64-gcc base-devel autoconf automake libtool bison flex
             #- name: Set up MinGW
             #  uses: egor-tensin/setup-mingw@v2
             #  with:
             #    platform: x64
+            #- name: Find MSVC and run vcvarsall.bat
+            #  uses: ilammy/msvc-dev-cmd@v1
+            #  with:
+            #    arch: amd64
             - name: Build and Test
-              shell: cmd
+              shell: powershell
               run: |
-                title jq Build %CPU% %dbg__type%
+                $script='
+                set -vx
                 git submodule update --init --recursive
-                mkdir %INSTALL_DIR%
-                pacman --noconfirm -S autoconf
-                pacman --noconfirm -S automake
-                pacman --noconfirm -S bison
-                set "PATH=%PATH%;C:\msys64\usr\bin;C:\cygwin\bin"
-                set "PATH=%PATH%;C:\tools\cygwin\bin"
-                echo PATH=%PATH%
-                # Make
-                autoreconf -fi
+                #set "PATH=%PATH%;C:\msys64\usr\bin;C:\cygwin\bin"
+                #set "PATH=%PATH%;C:\tools\cygwin\bin"
+                #PATH=%PATH%;C:\msys64\usr\bin;C:\msys64\mingw64\bin
+                export PATH="/mingw64/bin:/usr/bin:/bin:/usr/local/bin:/opt/bin:$PATH"
+                echo "PATH=$PATH"
+                set +e
+                aclocal -I m4
+                autoheader
+                libtoolize
+                autoconf
+                automake --add-missing --force-missing --copy
+                type git
+                type make
+                type autoreconf
+                type automake
+                #autoreconf -fi
                 ./configure --with-oniguruma=builtin --disable-shared --enable-static --enable-all-static
-                make
-                make SUBDIRS= "TESTS=tests/mantest tests/jqtest tests/onigtest tests/base64test" check
-                7z a jq-windows.zip jq.exe
+                MAKE=make
+                command -v gmake && MAKE=gmake
+                $MAKE
+                $MAKE SUBDIRS= "TESTS=tests/mantest tests/jqtest tests/onigtest tests/base64test" check
+                7z a jq-windows.zip jq.exe'
+                D:\a\_temp\msys64\usr\bin\bash.exe -c $script
             - name: Upload Artifacts
               uses: actions/upload-artifact@v2
               with:
                 name: Zip file
                 path: jq-windows.zip
+            - name: Upload Artifacts
+              uses: actions/upload-artifact@v2
+              with:
                 name: Executable
                 path: jq.exe
             - name: Upload Test Logs
