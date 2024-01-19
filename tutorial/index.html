@@ -1,372 +1,413 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-  <meta charset=UTF-8>
-  <title>Tutorial</title>
-  <link rel="stylesheet" href="/jq/bootstrap/css/bootstrap.css" type="text/css">
-  <link rel="stylesheet" href="/jq/css/base.css" type="text/css">
-  <!--[if IE]>
-    <script src="http://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
-  <![endif]-->
-  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.1/jquery.min.js"></script>
-  <script src="/jq/bootstrap/js/bootstrap.js"></script>
+    <meta charset="utf-8">
+    <title>Tutorial</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="/jq/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/jq/icon.png" type="image/png">
+    <link rel="canonical" href="https://jqlang.github.io/jq/tutorial/">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.1/dist/cosmo/bootstrap.min.css"
+      integrity="sha384-dulfW0vmzZ638jigSgZXvDxMmd70GCnIv6oa+riKq6Kk4E0MKf7qmBfwP02wltv5" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+      integrity="sha384-Ay26V7L8bsJTsX9Sxclnvsn+hkdiwRnrjZJXqKmkIDobPgIIWBOVguEcQQLDuhfN" crossorigin="anonymous">
+    <link rel="stylesheet" href="/jq/css/style.css" type="text/css">
+    <script>
+      (function() {
+        function setTheme(mediaQuery) {
+          document.documentElement.setAttribute('data-bs-theme',
+            document.documentElement.style.colorScheme = mediaQuery.matches ? 'dark' : 'light');
+        }
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        setTheme(mediaQuery); mediaQuery.addEventListener('change', setTheme);
+      })();
+    </script>
+  </head>
 
-</head>
-  <body id="tutorial">
-    
-<div class="navbar navbar-inverse navbar-fixed-top">
-  <div class="navbar-inner">
-    <div class="container">
-      <button type="button" class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
-        <span class="icon-bar"></span>
-        <span class="icon-bar"></span>
-        <span class="icon-bar"></span>
-      </button>
-      <a class="brand" href="/jq/">jq</a>
-      <div class="nav-collapse collapse">
-        <ul class="nav">
-          
-            <li  class="active" >
-              <a href="/jq/tutorial/">Tutorial</a>
-            </li>
-          
-            <li >
-              <a href="/jq/download/">Download</a>
-            </li>
-          
-            <li >
-              <a href="/jq/manual/">Manual</a>
-            </li>
-          
-          <li><a href="https://github.com/stedolan/jq/issues">Issues</a></li>
-          <li><a href="https://github.com/stedolan/jq">Source</a></li>
-        </ul>
-      </div>
+  <body>
+    <div class="container visually-hidden-focusable">
+      <a class="d-inline-flex p-2" href="#main">Skip to main content</a>
     </div>
-  </div>
-</div>
-	
-    
-    <div class="container">
-        
-      <div class="row">
-        <h1>Tutorial</h1>
-        
-          
-            <p>Twitter has a JSON API, so let&#8217;s play with that. This URL gets us the last 5 tweets about JSON:</p>
-          
-        
-          
-        
-          
-        
-          
+    <header class="navbar navbar-expand-md sticky-top bg-body-tertiary d-print-none">
+      <nav class="container-lg" aria-label="Page navigation">
+        <button type="button" class="navbar-toggler" data-bs-toggle="offcanvas" data-bs-target="#navbar-collapse"
+          aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle page navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <a class="navbar-brand" href="/jq/" aria-label="Top page"><img src="/jq/jq.svg" alt="jq logo" style="height:1.5rem"></a>
+        <div id="navbar-collapse" class="offcanvas offcanvas-start navbar-collapse w-auto" aria-labelledby="navbar-title">
+          <div class="offcanvas-header">
+            <h3 id="navbar-title" class="me-3">jq</h3>
+            <button type="button" class="d-md-none btn-close" data-bs-dismiss="offcanvas" aria-label="Close page navigation"></button>
+          </div>
+          <ul class="offcanvas-body navbar-nav me-auto text-nowrap">
+            <li class="nav-item d-md-none"><a class="nav-link" href="/jq/">Top page</a></li>
+            <li class="nav-item"><a class="nav-link active" aria-current="page" href="/jq/tutorial/">Tutorial</a></li>
+            <li class="nav-item"><a class="nav-link" href="/jq/download/">Download</a></li>
+            <li class="nav-item"><a class="nav-link" href="/jq/manual/">Manual</a></li>
+            <li class="nav-item"><a class="nav-link" href="https://github.com/jqlang/jq" target="_blank" rel="noopener">GitHub</a></li>
+            <li class="nav-item"><a class="nav-link" href="https://github.com/jqlang/jq/issues" target="_blank" rel="noopener">Issues</a></li>
+            <li class="nav-item"><a class="nav-link" href="https://jqplay.org" target="_blank" rel="noopener">Try online!</a></li>
+            <li class="nav-item"><a class="nav-link" href="https://raw.githubusercontent.com/jqlang/jq/master/NEWS.md" target="_blank" rel="noopener">News</a></li>
+          </ul>
+        </div>
+        <a class="d-md-none bi bi-github fs-4 text-body" href="https://github.com/jqlang/jq" target="_blank" rel="noopener" aria-label="GitHub"></a>
+      </nav>
+    </header>
 
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>curl 'http://search.twitter.com/search.json?q=json&rpp=5&include_entities=true'</pre>
-                <a data-toggle="collapse" href="#result1">Show result</a>
-              </div>
-              <div id="result1" class="accordion-body collapse"><pre>{"completed_in":0.108,"max_id":247677287108067328,"max_id_str":"247677287108067328","next_page":"?page=2&max_id=247677287108067328&q=json&rpp=5&include_entities=1","page":1,"query":"json","refresh_url":"?since_id=247677287108067328&q=json&include_entities=1","results":[{"created_at":"Mon, 17 Sep 2012 12:44:01 +0000","entities":{"hashtags":[],"urls":[{"url":"http:\/\/t.co\/XRvh1ZVw","expanded_url":"http:\/\/jase.im\/Ri7I0M","display_url":"jase.im\/Ri7I0M","indices":[112,132]}],"user_mentions":[{"screen_name":"imagemechanics","name":"Jason Cotterell","id":57271393,"id_str":"57271393","indices":[3,18]}]},"from_user":"_AaronNg","from_user_id":79771704,"from_user_id_str":"79771704","from_user_name":"NgChenChong","geo":null,"id":247677287108067328,"id_str":"247677287108067328","iso_language_code":"en","metadata":{"result_type":"recent"},"profile_image_url":"http:\/\/a0.twimg.com\/profile_images\/2523558403\/ek8mo4j4beq84iw28gjl_normal.jpeg","profile_image_url_https":"https:\/\/si0.twimg.com\/profile_images\/2523558403\/ek8mo4j4beq84iw28gjl_normal.jpeg","source":"&lt;a href=&quot;http:\/\/twitter.com\/&quot;&gt;web&lt;\/a&gt;","text":"RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp:\/\/t.co\/XRvh1ZVw","to_user":null,"to_user_id":0,"to_user_id_str":"0","to_user_name":null}, ...
-</pre></div>
-            </div>
-          
-        
-          
-            <p>There&#8217;s lots of info and no whitespace, so to make it a bit more legible we pipe it through jq, telling jq to just spit the input back at us using the expression <code>.</code>:</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>curl 'http://search.twitter.com/search.json?q=json&rpp=5&include_entities=true' | jq '.'</pre>
-                <a data-toggle="collapse" href="#result2">Show result</a>
-              </div>
-              <div id="result2" class="accordion-body collapse"><pre>
-{
-  "since_id_str": "0",
-  "since_id": 0,
-  "results_per_page": 5,
-  "completed_in": 0.108,
-  "max_id": 247677287108067330,
-  "max_id_str": "247677287108067328",
-  "next_page": "?page=2&max_id=247677287108067328&q=json&rpp=5&include_entities=1",
-  "page": 1,
-  "query": "json",
-  "refresh_url": "?since_id=247677287108067328&q=json&include_entities=1",
-  "results": [
-    {
-      "from_user_name": "NgChenChong",
-      "from_user_id_str": "79771704",
-      "from_user_id": 79771704,
-      "from_user": "_AaronNg",
-      "iso_language_code": "en",
-      "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-      "to_user": null
-      /* lots more fields... */
+    <main id="main" class="container-lg">
+      <h1>Tutorial</h1>
+      <p>GitHub has a JSON API, so let's play with that. This URL gets us the last
+5 commits from the jq repo.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">curl &#39;https://api.github.com/repos/jqlang/jq/commits?per_page=5&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result1" aria-expanded="false" aria-controls="result1">Show result</button>
+        </div>
+        <pre id="result1" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">[
+  {
+    &#34;sha&#34;: &#34;cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;node_id&#34;: &#34;C_kwDOAE3WVdoAKGNmZjUzMzZlYzcxYjZmZWUzOTZhOTViYjBlNGJlYTM2NWUwY2QxZTg&#34;,
+    &#34;commit&#34;: {
+      &#34;author&#34;: {
+        &#34;name&#34;: &#34;Mattias Wadman&#34;,
+        &#34;email&#34;: &#34;mattias.wadman@gmail.com&#34;,
+        &#34;date&#34;: &#34;2021-06-09T14:02:22Z&#34;
+      },
+      &#34;committer&#34;: {
+        &#34;name&#34;: &#34;Nico Williams&#34;,
+        &#34;email&#34;: &#34;nico@cryptonector.com&#34;,
+        &#34;date&#34;: &#34;2022-05-26T21:04:32Z&#34;
+      },
+      &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+      &#34;tree&#34;: {
+        &#34;sha&#34;: &#34;d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;,
+        &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/trees/d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;
+      },
+      &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+      &#34;comment_count&#34;: 0,
+      &#34;verification&#34;: {
+        &#34;verified&#34;: false,
+        &#34;reason&#34;: &#34;unsigned&#34;,
+        &#34;signature&#34;: null,
+        &#34;payload&#34;: null
+      }
     },
-    /* lots more results... */
+    &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;html_url&#34;: &#34;https://github.com/jqlang/jq/commit/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;comments_url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8/comments&#34;,
+    &#34;author&#34;: {
+...
+</pre>
+      </div>
+      <p>GitHub returns nicely formatted JSON. For servers that don't, it can be
+helpful to pipe the response through jq to pretty-print it. The simplest
+jq program is the expression <code>.</code>, which takes the input and produces it
+unchanged as output.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">curl &#39;https://api.github.com/repos/jqlang/jq/commits?per_page=5&#39; | jq &#39;.&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result2" aria-expanded="false" aria-controls="result2">Show result</button>
+        </div>
+        <pre id="result2" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">[
+  {
+    &#34;sha&#34;: &#34;cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;node_id&#34;: &#34;C_kwDOAE3WVdoAKGNmZjUzMzZlYzcxYjZmZWUzOTZhOTViYjBlNGJlYTM2NWUwY2QxZTg&#34;,
+    &#34;commit&#34;: {
+      &#34;author&#34;: {
+        &#34;name&#34;: &#34;Mattias Wadman&#34;,
+        &#34;email&#34;: &#34;mattias.wadman@gmail.com&#34;,
+        &#34;date&#34;: &#34;2021-06-09T14:02:22Z&#34;
+      },
+      &#34;committer&#34;: {
+        &#34;name&#34;: &#34;Nico Williams&#34;,
+        &#34;email&#34;: &#34;nico@cryptonector.com&#34;,
+        &#34;date&#34;: &#34;2022-05-26T21:04:32Z&#34;
+      },
+      &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+      &#34;tree&#34;: {
+        &#34;sha&#34;: &#34;d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;,
+        &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/trees/d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;
+      },
+      &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+      &#34;comment_count&#34;: 0,
+      &#34;verification&#34;: {
+        &#34;verified&#34;: false,
+        &#34;reason&#34;: &#34;unsigned&#34;,
+        &#34;signature&#34;: null,
+        &#34;payload&#34;: null
+      }
+    },
+    &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;html_url&#34;: &#34;https://github.com/jqlang/jq/commit/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;comments_url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8/comments&#34;,
+    &#34;author&#34;: {
+...
+</pre>
+      </div>
+      <p>We can use jq to extract just the first commit.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">curl &#39;https://api.github.com/repos/jqlang/jq/commits?per_page=5&#39; | jq &#39;.[0]&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result3" aria-expanded="false" aria-controls="result3">Show result</button>
+        </div>
+        <pre id="result3" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">{
+  &#34;sha&#34;: &#34;cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+  &#34;node_id&#34;: &#34;C_kwDOAE3WVdoAKGNmZjUzMzZlYzcxYjZmZWUzOTZhOTViYjBlNGJlYTM2NWUwY2QxZTg&#34;,
+  &#34;commit&#34;: {
+    &#34;author&#34;: {
+      &#34;name&#34;: &#34;Mattias Wadman&#34;,
+      &#34;email&#34;: &#34;mattias.wadman@gmail.com&#34;,
+      &#34;date&#34;: &#34;2021-06-09T14:02:22Z&#34;
+    },
+    &#34;committer&#34;: {
+      &#34;name&#34;: &#34;Nico Williams&#34;,
+      &#34;email&#34;: &#34;nico@cryptonector.com&#34;,
+      &#34;date&#34;: &#34;2022-05-26T21:04:32Z&#34;
+    },
+    &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+    &#34;tree&#34;: {
+      &#34;sha&#34;: &#34;d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;,
+      &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/trees/d67d5542df1f16d1a48e1fb75749f60482cd874b&#34;
+    },
+    &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/git/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+    &#34;comment_count&#34;: 0,
+    &#34;verification&#34;: {
+      &#34;verified&#34;: false,
+      &#34;reason&#34;: &#34;unsigned&#34;,
+      &#34;signature&#34;: null,
+      &#34;payload&#34;: null
+    }
+  },
+  &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+  &#34;html_url&#34;: &#34;https://github.com/jqlang/jq/commit/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8&#34;,
+  &#34;comments_url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/cff5336ec71b6fee396a95bb0e4bea365e0cd1e8/comments&#34;,
+  &#34;author&#34;: {
+    &#34;login&#34;: &#34;wader&#34;,
+    &#34;id&#34;: 185566,
+    &#34;node_id&#34;: &#34;MDQ6VXNlcjE4NTU2Ng==&#34;,
+    &#34;avatar_url&#34;: &#34;https://avatars.githubusercontent.com/u/185566?v=4&#34;,
+    &#34;gravatar_id&#34;: &#34;&#34;,
+    &#34;url&#34;: &#34;https://api.github.com/users/wader&#34;,
+    &#34;html_url&#34;: &#34;https://github.com/wader&#34;,
+    &#34;followers_url&#34;: &#34;https://api.github.com/users/wader/followers&#34;,
+    &#34;following_url&#34;: &#34;https://api.github.com/users/wader/following{/other_user}&#34;,
+    &#34;gists_url&#34;: &#34;https://api.github.com/users/wader/gists{/gist_id}&#34;,
+    &#34;starred_url&#34;: &#34;https://api.github.com/users/wader/starred{/owner}{/repo}&#34;,
+    &#34;subscriptions_url&#34;: &#34;https://api.github.com/users/wader/subscriptions&#34;,
+    &#34;organizations_url&#34;: &#34;https://api.github.com/users/wader/orgs&#34;,
+    &#34;repos_url&#34;: &#34;https://api.github.com/users/wader/repos&#34;,
+    &#34;events_url&#34;: &#34;https://api.github.com/users/wader/events{/privacy}&#34;,
+    &#34;received_events_url&#34;: &#34;https://api.github.com/users/wader/received_events&#34;,
+    &#34;type&#34;: &#34;User&#34;,
+    &#34;site_admin&#34;: false
+  },
+  &#34;committer&#34;: {
+    &#34;login&#34;: &#34;nicowilliams&#34;,
+    &#34;id&#34;: 604851,
+    &#34;node_id&#34;: &#34;MDQ6VXNlcjYwNDg1MQ==&#34;,
+    &#34;avatar_url&#34;: &#34;https://avatars.githubusercontent.com/u/604851?v=4&#34;,
+    &#34;gravatar_id&#34;: &#34;&#34;,
+    &#34;url&#34;: &#34;https://api.github.com/users/nicowilliams&#34;,
+    &#34;html_url&#34;: &#34;https://github.com/nicowilliams&#34;,
+    &#34;followers_url&#34;: &#34;https://api.github.com/users/nicowilliams/followers&#34;,
+    &#34;following_url&#34;: &#34;https://api.github.com/users/nicowilliams/following{/other_user}&#34;,
+    &#34;gists_url&#34;: &#34;https://api.github.com/users/nicowilliams/gists{/gist_id}&#34;,
+    &#34;starred_url&#34;: &#34;https://api.github.com/users/nicowilliams/starred{/owner}{/repo}&#34;,
+    &#34;subscriptions_url&#34;: &#34;https://api.github.com/users/nicowilliams/subscriptions&#34;,
+    &#34;organizations_url&#34;: &#34;https://api.github.com/users/nicowilliams/orgs&#34;,
+    &#34;repos_url&#34;: &#34;https://api.github.com/users/nicowilliams/repos&#34;,
+    &#34;events_url&#34;: &#34;https://api.github.com/users/nicowilliams/events{/privacy}&#34;,
+    &#34;received_events_url&#34;: &#34;https://api.github.com/users/nicowilliams/received_events&#34;,
+    &#34;type&#34;: &#34;User&#34;,
+    &#34;site_admin&#34;: false
+  },
+  &#34;parents&#34;: [
+    {
+      &#34;sha&#34;: &#34;f2ad9517c72f6267ae317639ab56bbfd4a8653d4&#34;,
+      &#34;url&#34;: &#34;https://api.github.com/repos/jqlang/jq/commits/f2ad9517c72f6267ae317639ab56bbfd4a8653d4&#34;,
+      &#34;html_url&#34;: &#34;https://github.com/jqlang/jq/commit/f2ad9517c72f6267ae317639ab56bbfd4a8653d4&#34;
+    }
   ]
 }
-</pre></div>
-            </div>
-          
-        
-          
-            <p>Let&#8217;s pull out the first tweet:</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>curl 'http://search.twitter.com/search.json?q=json&rpp=5&include_entities=true' | jq '.results[0]'</pre>
-                <a data-toggle="collapse" href="#result3">Show result</a>
-              </div>
-              <div id="result3" class="accordion-body collapse"><pre>{
-  "from_user_name": "NgChenChong",
-  "from_user_id_str": "79771704",
-  "from_user_id": 79771704,
-  "from_user": "_AaronNg",
-  "iso_language_code": "en",
-  "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-  "to_user": null
-  /* lots more fields... */
-},
-</pre></div>
-            </div>
-          
-        
-          
-            <p>For the rest of the examples, I&#8217;ll leave out the <code>curl</code> command - it&#8217;s not going to change.</p>
-
-<p>There&#8217;s still a lot of info we don&#8217;t care about there, so we&#8217;ll restrict it down to the most interesting fields.</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>jq '.results[0] | {from_user, text}'</pre>
-                <a data-toggle="collapse" href="#result4">Show result</a>
-              </div>
-              <div id="result4" class="accordion-body collapse"><pre>{
-  "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-  "from_user": "_AaronNg"
+</pre>
+      </div>
+      <p>For the rest of the examples, I'll leave out the <code>curl</code> command - it's not
+going to change.</p>
+<p>There's a lot of info we don't care about there, so we'll restrict it down
+to the most interesting fields.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">jq &#39;.[0] | {message: .commit.message, name: .commit.committer.name}&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result4" aria-expanded="false" aria-controls="result4">Show result</button>
+        </div>
+        <pre id="result4" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">{
+  &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
-</pre></div>
-            </div>
-          
-        
-          
-            <p>The <code>|</code> operator in jq feeds the output of one filter (<code>.results[0]</code> which gets the first element of the results array) into the input of another (<code>{from_user, text}</code> which builds an object of those two fields).</p>
-
-<p>Now let&#8217;s get the rest of the tweets:</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>jq '.results[] | {from_user, text}'</pre>
-                <a data-toggle="collapse" href="#result5">Show result</a>
-              </div>
-              <div id="result5" class="accordion-body collapse"><pre>{
-  "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-  "from_user": "_AaronNg"
+</pre>
+      </div>
+      <p>The <code>|</code> operator in jq feeds the output of one filter (<code>.[0]</code> which gets
+the first element of the array in the response) into the input of another
+(<code>{...}</code> which builds an object out of those fields). You can access
+nested attributes, such as <code>.commit.message</code>.</p>
+<p>Now let's get the rest of the commits.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">jq &#39;.[] | {message: .commit.message, name: .commit.committer.name}&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result5" aria-expanded="false" aria-controls="result5">Show result</button>
+        </div>
+        <pre id="result5" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">{
+  &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
 {
-  "text": "RT @_kud: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt; -- http://t.co/Lhp92IqD",
-  "from_user": "blouerat"
+  &#34;message&#34;: &#34;Mention -n in IO-section and for input/inputs&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
 {
-  "text": "Dynamic Forms Mobile App by pmadiset: Few Forms details are hosted on our server in the form of JSON. This JSON ... http://t.co/7KALdWaX",
-  "from_user": "cebu_iphone"
+  &#34;message&#34;: &#34;Fix iterration problem for non decimal string\n\nWhen the string transformation to number failed, all following\ntransformation failed too.\n\nThis happend because status in decNumberFromString function is\nupdated just in error case. Reusing the DEC_CONTEXT that failed\nbefore results into error even if the string is valid number.&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
 {
-  "text": "iPhone 5 website insanity - Video compressing using JPEG, JSON, and &lt;canvas&gt; http://t.co/28Jesbio (Oh #Apple, U So #Awesome...)",
-  "from_user": "dieswaytoofast"
+  &#34;message&#34;: &#34;docs: point to Libera.Chat instead of Freenode&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
 {
-  "text": "RT @umutm: A very nice web-based JSON editor - http://t.co/M70snaIf",
-  "from_user": "Leolik"
+  &#34;message&#34;: &#34;Missing \&#34;va_end\&#34; call. This was found by running the cppcheck static analysis where it shows as error.&#34;,
+  &#34;name&#34;: &#34;Nico Williams&#34;
 }
-</pre></div>
-            </div>
-          
-        
-          
-            <p><code>.results[]</code> returns each element of the results array, one at a time, which are all fed into <code>{from_user, text}</code>.</p>
-
-<p>Data in jq is represented as streams of JSON values - every jq expression runs for each value in its input stream, and can produce any number of values to its output stream.</p>
-
-<p>Streams are serialised by just separating JSON values with whitespace. This is a <code>cat</code>-friendly format - you can just join two JSON streams together and get a valid JSON stream.</p>
-
-<p>If you want to get the output as a single array, you can tell jq to &#8220;collect&#8221; all of the answers by wrapping the filter in square brackets:</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>jq '[.results[] | {from_user, text}]'</pre>
-                <a data-toggle="collapse" href="#result6">Show result</a>
-              </div>
-              <div id="result6" class="accordion-body collapse"><pre>[
+</pre>
+      </div>
+      <p><code>.[]</code> returns each element of the array returned in the response, one at a
+time, which are all fed into
+<code>{message: .commit.message, name: .commit.committer.name}</code>.</p>
+<p>Data in jq is represented as streams of JSON values - every jq
+expression runs for each value in its input stream, and can
+produce any number of values to its output stream.</p>
+<p>Streams are serialised by just separating JSON values with
+whitespace. This is a <code>cat</code>-friendly format - you can just join
+two JSON streams together and get a valid JSON stream.</p>
+<p>If you want to get the output as a single array, you can tell jq to
+"collect" all of the answers by wrapping the filter in square
+brackets:</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">jq &#39;[.[] | {message: .commit.message, name: .commit.committer.name}]&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result6" aria-expanded="false" aria-controls="result6">Show result</button>
+        </div>
+        <pre id="result6" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">[
   {
-    "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-    "from_user": "_AaronNg"
+    &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;
   },
   {
-    "text": "RT @_kud: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt; -- http://t.co/Lhp92IqD",
-    "from_user": "blouerat"
+    &#34;message&#34;: &#34;Mention -n in IO-section and for input/inputs&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;
   },
   {
-    "text": "Dynamic Forms Mobile App by pmadiset: Few Forms details are hosted on our server in the form of JSON. This JSON ... http://t.co/7KALdWaX",
-    "from_user": "cebu_iphone"
+    &#34;message&#34;: &#34;Fix iterration problem for non decimal string\n\nWhen the string transformation to number failed, all following\ntransformation failed too.\n\nThis happend because status in decNumberFromString function is\nupdated just in error case. Reusing the DEC_CONTEXT that failed\nbefore results into error even if the string is valid number.&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;
   },
   {
-    "text": "iPhone 5 website insanity - Video compressing using JPEG, JSON, and &lt;canvas&gt; http://t.co/28Jesbio (Oh #Apple, U So #Awesome...)",
-    "from_user": "dieswaytoofast"
+    &#34;message&#34;: &#34;docs: point to Libera.Chat instead of Freenode&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;
   },
   {
-    "text": "RT @umutm: A very nice web-based JSON editor - http://t.co/M70snaIf",
-    "from_user": "Leolik"
+    &#34;message&#34;: &#34;Missing \&#34;va_end\&#34; call. This was found by running the cppcheck static analysis where it shows as error.&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;
   }
 ]
-</pre></div>
-            </div>
-          
-        
-          
-            <hr />
-<p>Next, let&#8217;s try getting the URLs out of those API results as well. In each tweet, the Twitter API includes a field called &#8220;entities&#8221; which looks like this:</p>
-
-<pre><code>{
-  &quot;user_mentions&quot;: [],
-  &quot;urls&quot;: [{
-      &quot;indices&quot;: [83, 103],
-      &quot;display_url&quot;: &quot;bit.ly/StniqT&quot;,
-      &quot;expanded_url&quot;: &quot;http://bit.ly/StniqT&quot;,
-      &quot;url&quot;: &quot;http://t.co/28Jesbio&quot;
-  }],
-  &quot;hashtags&quot;: [
-    {&quot;indices&quot;: [108, 114], &quot;text&quot;: &quot;Apple&quot; },
-    {&quot;indices&quot;: [121, 129], &quot;text&quot;: &quot;Awesome&quot;}
-  ]
-}</code></pre>
-
-<p>We want to pull out all of the &#8220;url&#8221; fields inside that array of url objects, and make a simple list of strings to go along with the &#8220;from_user&#8221; and &#8220;text&#8221; fields we already have.</p>
-          
-        
-          
-        
-          
-        
-          
-
-        
-            
-            <div class="tutorial-example">
-              <div class="accordion-heading">
-                <pre>jq '.results[] | {from_user, text, urls: [.entities.urls[].url]}'</pre>
-                <a data-toggle="collapse" href="#result7">Show result</a>
-              </div>
-              <div id="result7" class="accordion-body collapse"><pre>{
- "urls": [
-   "http://t.co/XRvh1ZVw"
- ],
- "text": "RT @imagemechanics: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt;.\nhttp://t.co/XRvh1ZVw",
-  "from_user": "_AaronNg"
-}
-{
-  "urls": [
-    "http://t.co/Lhp92IqD"
-  ],
-  "text": "RT @_kud: iPhone 5 website teardown: How Apple compresses video using JPEG, JSON, and &lt;canvas&gt; -- http://t.co/Lhp92IqD",
-  "from_user": "blouerat"
-}
-{
-  "urls": [
-    "http://t.co/7KALdWaX"
-  ],
-  "text": "Dynamic Forms Mobile App by pmadiset: Few Forms details are hosted on our server in the form of JSON. This JSON ... http://t.co/7KALdWaX",
-  "from_user": "cebu_iphone"
-}
-{
-  "urls": [
-    "http://t.co/28Jesbio"
-  ],
-  "text": "iPhone 5 website insanity - Video compressing using JPEG, JSON, and &lt;canvas&gt; http://t.co/28Jesbio (Oh #Apple, U So #Awesome...)",
-  "from_user": "dieswaytoofast"
-}
-{
-  "urls": [
-    "http://t.co/M70snaIf"
-  ],
-  "text": "RT @umutm: A very nice web-based JSON editor - http://t.co/M70snaIf",
-  "from_user": "Leolik"
-}
-</pre></div>
-            </div>
-          
-        
-          
-            <p>Here we&#8217;re making an object as before, but this time the urls field is being set to <code>[.entities.urls[].url]</code>, which collects all of the URLs defined in the entities object.</p>
-          
-        
-          
-        
-          
-            <hr />
-<p>Here endeth the tutorial! There&#8217;s lots more to play with, go read <a href='../manual/'>the manual</a> if you&#8217;re interested, and <a href='../download/'>download jq</a> if you haven&#8217;t already.</p>
-          
-        
-          
-        
+</pre>
       </div>
-    </div>
-    <footer>
-  <div class="container">
-    <p>This website is made with <a href='http://www.tinytree.info'>Bonsai</a> and <a href='http://twitter.github.com/bootstrap/'>Twitter Bootstrap</a>, themed with <a href='http://bootswatch.com'>Bootswatch</a>.</p>
+      <hr />
+<p>Next, let's try getting the URLs of the parent commits out of the
+API results as well. In each commit, the GitHub API includes information
+about "parent" commits. There can be one or many.</p>
+<pre><code>"parents": [
+  {
+    "sha": "f2ad9517c72f6267ae317639ab56bbfd4a8653d4",
+    "url": "https://api.github.com/repos/jqlang/jq/commits/f2ad9517c72f6267ae317639ab56bbfd4a8653d4",
+    "html_url": "https://github.com/jqlang/jq/commit/f2ad9517c72f6267ae317639ab56bbfd4a8653d4"
+  }
+]
+</code></pre>
+<p>We want to pull out all of the "html_url" fields inside that array of parent
+commits and make a simple list of strings to go along with the
+"message" and "author" fields we already have.</p>
+      <div class="tutorial-example mb-3">
+        <div class="d-flex accordion-heading me-2">
+          <pre class="flex-grow-1 me-0 mb-0" tabindex="0">jq &#39;[.[] | {message: .commit.message, name: .commit.committer.name, parents: [.parents[].html_url]}]&#39;</pre>
+          <button type="button" class="btn btn-sm btn-secondary text-body-secondary bg-secondary-subtle link-body-emphasis flex-shrink-0 d-flex align-items-center border border-start-0 d-print-none"
+            data-bs-toggle="collapse" data-bs-target="#result7" aria-expanded="false" aria-controls="result7">Show result</button>
+        </div>
+        <pre id="result7" class="accordion-body collapse p-3 border-top-0 d-print-block" tabindex="0">[
+  {
+    &#34;message&#34;: &#34;docs: Document repeat(exp)&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;,
+    &#34;parents&#34;: [
+      &#34;https://github.com/jqlang/jq/commit/f2ad9517c72f6267ae317639ab56bbfd4a8653d4&#34;
+    ]
+  },
+  {
+    &#34;message&#34;: &#34;Mention -n in IO-section and for input/inputs&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;,
+    &#34;parents&#34;: [
+      &#34;https://github.com/jqlang/jq/commit/c4d39c4d22f2b12225ca1b311708f7e084ad9ff8&#34;
+    ]
+  },
+  {
+    &#34;message&#34;: &#34;Fix iterration problem for non decimal string\n\nWhen the string transformation to number failed, all following\ntransformation failed too.\n\nThis happend because status in decNumberFromString function is\nupdated just in error case. Reusing the DEC_CONTEXT that failed\nbefore results into error even if the string is valid number.&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;,
+    &#34;parents&#34;: [
+      &#34;https://github.com/jqlang/jq/commit/174db0f93552bdb551ae1f3c5c64744df0ad8e2f&#34;
+    ]
+  },
+  {
+    &#34;message&#34;: &#34;docs: point to Libera.Chat instead of Freenode&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;,
+    &#34;parents&#34;: [
+      &#34;https://github.com/jqlang/jq/commit/29cf77977ef52eec708982b19bf9d2ec17443337&#34;
+    ]
+  },
+  {
+    &#34;message&#34;: &#34;Missing \&#34;va_end\&#34; call. This was found by running the cppcheck static analysis where it shows as error.&#34;,
+    &#34;name&#34;: &#34;Nico Williams&#34;,
+    &#34;parents&#34;: [
+      &#34;https://github.com/jqlang/jq/commit/55e6e2c21829bd866bd4b18ee254b05c9020320a&#34;
+    ]
+  }
+]
+</pre>
+      </div>
+      <p>Here we're making an object as before, but this time the <code>parents</code>
+field is being set to <code>[.parents[].html_url]</code>, which collects
+all of the parent commit URLs defined in the parents object.</p>
+      <hr />
+<p>Here endeth the tutorial! There's lots more to play with. Go
+read <a href="../manual/">the manual</a> if you're interested, and <a href="../download/">download
+jq</a> if you haven't already.</p>
+    </main>
 
-<p>jq is licensed under the MIT license (code) and the <a href='http://creativecommons.org/licenses/by/3.0/'>CC-BY-3.0</a> license (docs).</p>
-  </div>
-</footer>
-
-    
+    <footer class="bd-footer bg-body-tertiary">
+      <div class="py-3 text-center">
+        <p>
+          This website is made with <a href="https://getbootstrap.com" target="_blank" rel="noopener">Bootstrap</a>,
+          themed with <a href="https://bootswatch.com" target="_blank" rel="noopener">Bootswatch</a>.
+        </p>
+        <p>
+          jq is licensed under the MIT license (code) and the
+          <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC-BY-3.0</a> license (docs).
+        </p>
+      </div>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
   </body>
 </html>

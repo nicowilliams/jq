@@ -2,11 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>jq Manual (development version)</title>
+    <title>jq 1.7 Manual</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="/jq/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/jq/icon.png" type="image/png">
-    <link rel="canonical" href="https://jqlang.github.io/jq/manual/">
+    <link rel="canonical" href="https://jqlang.github.io/jq/manual/v1.7/">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.1/dist/cosmo/bootstrap.min.css"
       integrity="sha384-dulfW0vmzZ638jigSgZXvDxMmd70GCnIv6oa+riKq6Kk4E0MKf7qmBfwP02wltv5" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
@@ -45,7 +45,7 @@
             <li class="nav-item d-md-none"><a class="nav-link" href="/jq/">Top page</a></li>
             <li class="nav-item"><a class="nav-link" href="/jq/tutorial/">Tutorial</a></li>
             <li class="nav-item"><a class="nav-link" href="/jq/download/">Download</a></li>
-            <li class="nav-item"><a class="nav-link active" aria-current="page" href="/jq/manual/">Manual</a></li>
+            <li class="nav-item"><a class="nav-link" href="/jq/manual/">Manual</a></li>
             <li class="nav-item"><a class="nav-link" href="https://github.com/jqlang/jq" target="_blank" rel="noopener">GitHub</a></li>
             <li class="nav-item"><a class="nav-link" href="https://github.com/jqlang/jq/issues" target="_blank" rel="noopener">Issues</a></li>
             <li class="nav-item"><a class="nav-link" href="https://jqplay.org" target="_blank" rel="noopener">Try online!</a></li>
@@ -108,9 +108,6 @@
             <a class="nav-link" href="#assignment">Assignment</a>
           </li>
           <li class="nav-item" data-bs-dismiss="offcanvas" data-bs-target="#contents">
-            <a class="nav-link" href="#comments">Comments</a>
-          </li>
-          <li class="nav-item" data-bs-dismiss="offcanvas" data-bs-target="#contents">
             <a class="nav-link" href="#modules">Modules</a>
           </li>
           <li class="nav-item" data-bs-dismiss="offcanvas" data-bs-target="#contents">
@@ -119,9 +116,9 @@
         </ul>
       </nav>
       <main id="main" class="col-md-9" data-bs-spy="scroll" data-bs-target="#contents" data-bs-threshold="0,1" data-bs-root-margin="-30% 0% -70%">
-        <h1>jq Manual (development version)</h1>
-        <p><em>For released versions, see <a href="./v1.7/">jq 1.7</a>, <a href="./v1.6/">jq 1.6</a>, <a href="./v1.5/">jq 1.5</a>,
-<a href="./v1.4/">jq 1.4</a> or <a href="./v1.3/">jq 1.3</a>.</em></p>
+        <h1>jq 1.7 Manual</h1>
+        <p><em>The manual for the development version of jq can be found
+<a href="../">here</a>.</em></p>
         <p>A jq program is a "filter": it takes an input, and produces an
 output. There are a lot of builtin filters for extracting a
 particular field of an object, or converting a number to a string,
@@ -293,7 +290,7 @@ using some command-line options:</p>
 <li><code>-f filename</code> / <code>--from-file filename</code>:</li>
 </ul>
 <p>Read filter from the file rather than from a command line, like
-  awk's -f option.</p>
+  awk's -f option. You can also use '#' to make comments.</p>
 <ul>
 <li><code>-L directory</code>:</li>
 </ul>
@@ -375,8 +372,9 @@ using some command-line options:</p>
 <ul>
 <li><code>--</code>:</li>
 </ul>
-<p>Terminates argument processing.  Remaining arguments are not
-  interpreted as options.</p>
+<p>Terminates argument processing.  Remaining arguments are
+  positional, either strings, JSON texts, or input filenames,
+  according to whether <code>--args</code> or <code>--jsonargs</code> were given.</p>
 <ul>
 <li><code>--run-tests [filename]</code>:</li>
 </ul>
@@ -5821,7 +5819,7 @@ evaluating a condition, see the <code>//</code> operator below.</p>
               <a href="#alternative-operator" class="icon-link" aria-label="Link to this section: Alternative operator: `//`"><span class="bi bi-link-45deg" aria-hidden="true"></span></a>
             </h3>
             <p>The <code>//</code> operator produces all the values of its left-hand
-side that are neither <code>false</code> nor <code>null</code>. If the
+side that are neither <code>false</code> nor <code>null</code>, or, if the
 left-hand side produces no values other than <code>false</code> or
 <code>null</code>, then <code>//</code> produces all the values of its right-hand
 side.</p>
@@ -7989,61 +7987,6 @@ that we did before:</p>
 </code></pre>
           </section>
         </section>
-        <section id="comments">
-          <h2>Comments <a href="#comments" class="icon-link" aria-label="Link to this section: Comments"><span class="bi bi-link-45deg" aria-hidden="true"></span></a></h2>
-          <p>You can write comments in your jq filters using <code>#</code>.</p>
-<p>A <code>#</code> character (not part of a string) starts a comment.
-All characters from <code>#</code> to the end of the line are ignored.</p>
-<p>If the end of the line is preceded by an odd number of backslash
-characters, the following line is also considered part of the
-comment and is ignored.</p>
-<p>For example, the following code outputs <code>[1,3,4,7]</code></p>
-<pre><code>[
-  1,
-  # foo \
-  2,
-  # bar \\
-  3,
-  4, # baz \\\
-  5, \
-  6,
-  7
-  # comment \
-    comment \
-    comment
-]
-</code></pre>
-<p>Backslash continuing the comment on the next line can be useful
-when writing the "shebang" for a jq script:</p>
-<pre><code>#!/bin/sh --
-# sum - Output the sum of the given arguments (or stdin)
-# usage: sum [numbers...]
-# \
-exec jq --args -MRnf "$0" -- "$@"
-
-$ARGS.positional |
-reduce (
-  if . == []
-    then inputs
-    else .[]
-  end |
-  . as $dot |
-  try tonumber catch false |
-  if not or isnan then
-    @json "sum: Invalid number \($dot).\n" | halt_error(1)
-  end
-) as $n (0; . + $n)
-</code></pre>
-<p>The <code>exec</code> line is considered a comment by jq, so it is ignored.
-But it is not ignored by <code>sh</code>, since in <code>sh</code> a backslash at the
-end of the line does not continue the comment.
-With this trick, when the script is invoked as <code>sum 1 2</code>,
-<code>/bin/sh -- /path/to/sum 1 2</code> will be run, and <code>sh</code> will then
-run <code>exec jq --args -MRnf /path/to/sum -- 1 2</code> replacing itself
-with a <code>jq</code> interpreter invoked with the specified options (<code>-M</code>,
-<code>-R</code>, <code>-n</code>, <code>--args</code>), that evaluates the current file (<code>$0</code>),
-with the arguments (<code>$@</code>) that were passed to <code>sh</code>.</p>
-        </section>
         <section id="modules">
           <h2>Modules <a href="#modules" class="icon-link" aria-label="Link to this section: Modules"><span class="bi bi-link-45deg" aria-hidden="true"></span></a></h2>
           <p>jq has a library/module system.  Modules are files whose names end
@@ -8171,7 +8114,7 @@ escape sequences like <code>"1;31"</code>, in this order:</p>
 <li>color for object keys</li>
 </ul>
 <p>The default color scheme is the same as setting
-<code>JQ_COLORS="0;90:0;39:0;39:0;39:0;32:1;39:1;39:1;34"</code>.</p>
+<code>JQ_COLORS="0;90:0;37:0;37:0;37:0;32:1;37:1;37:1;34"</code>.</p>
 <p>This is not a manual for VT100/ANSI escapes.  However, each of
 these color specifications should consist of two numbers separated
 by a semi-colon, where the first number is one of these:</p>
@@ -8353,7 +8296,6 @@ by a semi-colon, where the first number is one of these:</p>
         "Plain assignment: =": "plain-assignment",
         "Complex assignments": "complex-assignments",
         "Assignment": "assignment",
-        "Comments": "comments",
         "import RelativePathString as NAME [\u003cmetadata\u003e];": "import-relativepathstring-as-name",
         "include RelativePathString [\u003cmetadata\u003e];": "include-relativepathstring",
         "import RelativePathString as $NAME [\u003cmetadata\u003e];": "import-relativepathstring-as-$name",
